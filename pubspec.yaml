@@ -1,0 +1,65 @@
+name: clikkme
+description: A new Flutter project.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.2.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # State Management
+  flutter_bloc: ^8.1.3
+  equatable: ^2.0.5
+  get_it: ^7.6.0
+
+  # Networking & Local Storage
+  dio: ^5.4.0
+  flutter_secure_storage: ^9.0.0
+  shared_preferences: ^2.2.2
+
+  # UI & Assets
+  google_fonts: ^6.1.0
+  font_awesome_flutter: ^10.6.0
+  intl: ^0.19.0
+  cupertino_icons: ^1.0.2
+
+  image_picker: ^1.0.7        # For picking profile pics
+  cached_network_image: ^3.3.1 # For efficient image caching
+  shimmer: ^3.0.0             # For Instagram-like loading skeletons
+
+  carousel_slider: ^5.1.1     # For sliding through multiple post images
+  hive: ^2.2.3                 # Fast local DB for offline feed
+  hive_flutter: ^1.1.0         # Flutter adapters for Hive
+  timeago: ^3.6.1              # For "5 mins ago" timestamps
+  share_plus: ^7.2.1
+
+  photo_manager: ^3.0.0-dev.1  # For fetching gallery images efficiently
+  image_editor_plus: ^1.0.0    # Optional: For cropping/filters (Insta-like)
+  video_player: ^2.8.2         # To preview videos before upload
+  path_provider: ^2.1.2        # File system access
+  permission_handler: ^11.1.0  # Manage gallery permissions
+  photo_manager_image_provider: ^2.2.0
+
+  image_cropper: ^11.0.0
+  flutter_image_compress: ^2.4.0
+
+  visibility_detector: ^0.4.0+2
+  flutter_cache_manager: ^3.3.1
+
+  hugeicons: ^1.1.5
+
+  socket_io_client: ^2.0.3+1
+  grouped_list: ^5.1.2          # To group messages by date (optional but good for Insta feel)
+
+  agora_rtc_engine: ^6.3.0     # The video streaming engine
+  wakelock_plus: ^1.1.0        # Keeps screen on during live
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true

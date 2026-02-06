@@ -1,0 +1,152 @@
+import 'dart:io';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import '../../../feed/domain/entities/post_entity.dart';
+import '../../domain/entities/user_entity.dart';
+import '../../domain/repositories/profile_repository.dart';
+
+// Events
+abstract class ProfileEvent {}
+class FetchProfile extends ProfileEvent { final String userId; FetchProfile(this.userId); }
+class RefreshProfile extends ProfileEvent { final String userId; RefreshProfile(this.userId); }
+class ToggleFollowEvent extends ProfileEvent { final String userId; ToggleFollowEvent(this.userId); }
+class BlockUserEvent extends ProfileEvent { final String userId; BlockUserEvent(this.userId); }
+class UnblockUserEvent extends ProfileEvent { final String userId; UnblockUserEvent(this.userId); }
+class ReportUserEvent extends ProfileEvent { final String userId; final String reason; ReportUserEvent(this.userId, this.reason); }
+class UpdateProfileEvent extends ProfileEvent { final String? bio; final File? image; UpdateProfileEvent({this.bio, this.image}); }
+
+// States
+abstract class ProfileState {}
+class ProfileInitial extends ProfileState {}
+class ProfileLoading extends ProfileState {}
+class ProfileLoaded extends ProfileState {
+  final UserEntity user;
+  final bool isMe;
+  final List<PostEntity> posts;
+
+  ProfileLoaded(this.user, {this.isMe = false, this.posts = const []});
+
+  ProfileLoaded copyWith({UserEntity? user, bool? isMe, List<PostEntity>? posts}) {
+    return ProfileLoaded(
+      user ?? this.user,
+      isMe: isMe ?? this.isMe,
+      posts: posts ?? this.posts,
+    );
+  }
+}
+class ProfileError extends ProfileState { final String message; ProfileError(this.message); }
+
+class ProfileBloc extends Bloc<ProfileEvent, ProfileState> {
+  final ProfileRepository repository;
+
+  ProfileBloc(this.repository) : super(ProfileInitial()) {
+
+    on<FetchProfile>((event, emit) async {
+      emit(ProfileLoading());
+      try {
+        final cachedUser = await repository.getCachedUserProfile(event.userId);
+        if (cachedUser != null) {
+          emit(ProfileLoaded(cachedUser));
+        }
+
+        // 1. Fetch Profile First to determine blocked status
+        final user = await repository.getRemoteUserProfile(event.userId);
+
+        List<PostEntity> posts = [];
+
+        // 2. Only fetch posts if NOT blocked
+        if (!user.isBlocked) {
+          posts = await repository.getUserPosts(event.userId);
+        }
+
+        // Check if viewing own profile (Mock check, ideally compare IDs)
+        bool isMe = false;
+
+        emit(ProfileLoaded(user, isMe: isMe, posts: posts));
+      } catch (e) {
+        if (state is! ProfileLoaded) {
+          emit(ProfileError("Failed to load profile or user not found"));
+        }
+      }
+    });
+
+    on<RefreshProfile>((event, emit) async {
+      try {
+        final user = await repository.getRemoteUserProfile(event.userId);
+        List<PostEntity> posts = [];
+        if (!user.isBlocked) {
+          posts = await repository.getUserPosts(event.userId);
+        }
+        emit(ProfileLoaded(user, isMe: false, posts: posts));
+      } catch (_) {}
+    });
+
+    on<ToggleFollowEvent>((event, emit) async {
+      final currentState = state;
+      if (currentState is ProfileLoaded) {
+        // Prevent following if blocked
+        if (currentState.user.isBlocked) return;
+
+        final bool originalStatus = currentState.user.isFollowing;
+        final int originalCount = currentState.user.followersCount;
+
+        final updatedUser = currentState.user.copyWith(
+          isFollowing: !originalStatus,
+          followersCount: originalStatus ? originalCount - 1 : originalCount + 1,
+        );
+
+        emit(currentState.copyWith(user: updatedUser));
+
+        try {
+          if (originalStatus) {
+            await repository.unfollowUser(event.userId);
+          } else {
+            await repository.followUser(event.userId);
+          }
+        } catch (e) {
+          emit(currentState.copyWith(user: currentState.user));
+        }
+      }
+    });
+
+    on<BlockUserEvent>((event, emit) async {
+      final currentState = state;
+      if (currentState is ProfileLoaded) {
+        // Optimistic UI: Mark as blocked immediately and clear posts
+        emit(currentState.copyWith(
+            user: currentState.user.copyWith(isBlocked: true, isFollowing: false),
+            posts: [] // Clear posts immediately
+        ));
+        try {
+          await repository.blockUser(event.userId);
+        } catch (e) {
+          // Revert if failed
+          emit(currentState.copyWith(user: currentState.user.copyWith(isBlocked: false)));
+        }
+      }
+    });
+
+    on<UnblockUserEvent>((event, emit) async {
+      final currentState = state;
+      if (currentState is ProfileLoaded) {
+        // Optimistic UI: Mark as unblocked immediately
+        emit(currentState.copyWith(user: currentState.user.copyWith(isBlocked: false)));
+        try {
+          await repository.unblockUser(event.userId);
+          // Trigger refresh to get posts back
+          add(RefreshProfile(event.userId));
+        } catch (e) {
+          // Revert if failed
+          emit(currentState.copyWith(user: currentState.user.copyWith(isBlocked: true)));
+        }
+      }
+    });
+
+    on<ReportUserEvent>((event, emit) async {
+      try {
+        await repository.reportUser(event.userId, event.reason);
+      } catch (e) {
+        // Handled silently
+      }
+    });
+  }
+}
