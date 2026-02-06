@@ -44,6 +44,9 @@ dependencies:
 
   image_cropper: ^11.0.0
   flutter_image_compress: ^2.4.0
+  video_compress: ^3.1.2
+  audioplayers: ^5.2.1
+
 
   visibility_detector: ^0.4.0+2
   flutter_cache_manager: ^3.3.1

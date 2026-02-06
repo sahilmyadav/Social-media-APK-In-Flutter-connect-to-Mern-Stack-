@@ -9,6 +9,7 @@ import 'modules/auth/presentation/bloc/auth_state.dart';
 import 'modules/auth/presentation/screens/login_screen.dart';
 import 'modules/auth/presentation/screens/otp_verification_screen.dart';
 import 'modules/auth/presentation/screens/complete_profile_screen.dart';
+import 'modules/post/presentation/bloc/upload_bloc.dart';
 import 'presentation/main_screen.dart';
 
 void main() async {
@@ -35,6 +36,10 @@ class MyApp extends StatelessWidget {
       providers: [
         BlocProvider(
           create: (_) => di.sl<AuthBloc>()..add(AppStarted()),
+        ),
+
+        BlocProvider(
+          create: (_) => di.sl<UploadBloc>(),
         ),
       ],
       child: MaterialApp(
