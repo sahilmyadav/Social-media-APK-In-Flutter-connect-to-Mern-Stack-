@@ -6,6 +6,7 @@ import '../../../../core/network/api_client.dart';
 
 import '../../../feed/domain/entities/post_entity.dart';
 
+import '../../../reels/domain/entities/reel_entity.dart';
 import '../../domain/entities/user_entity.dart';
 import '../../domain/repositories/profile_repository.dart';
 
@@ -167,6 +168,24 @@ class ProfileRepositoryImpl implements ProfileRepository {
       }
       return [];
     } catch (e) {
+      return [];
+    }
+  }
+
+  @override
+  Future<List<ReelEntity>> getUserReels(String userId) async {
+    try {
+      // Updated Endpoint for Reels
+      final String endpoint = '/reel/user/$userId';
+      final response = await _apiClient.dio.get(endpoint);
+
+      if (response.data['data'] != null && response.data['data']['reels'] != null) {
+        final List data = response.data['data']['reels'];
+        return data.map((json) => ReelEntity.fromJson(json)).toList();
+      }
+      return [];
+    } catch (e) {
+      debugPrint("❌ API ERROR (getUserReels): $e");
       return [];
     }
   }

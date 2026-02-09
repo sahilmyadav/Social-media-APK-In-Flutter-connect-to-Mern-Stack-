@@ -26,6 +26,7 @@ class ReelPlayerItem extends StatefulWidget {
 class _ReelPlayerItemState extends State<ReelPlayerItem> with SingleTickerProviderStateMixin {
   VideoPlayerController? _controller;
   bool _initialized = false;
+  bool _isVisible = false; // Track visibility status
   late AnimationController _heartAnimationController;
   late Animation<double> _heartScaleAnimation;
   bool _showHeart = false;
@@ -57,13 +58,21 @@ class _ReelPlayerItemState extends State<ReelPlayerItem> with SingleTickerProvid
       String url = widget.reel.videoUrl;
       if (url.startsWith('/')) url = "https://clikkme.in$url";
 
-      final fileInfo = await DefaultCacheManager().getSingleFile(url);
-      _controller = VideoPlayerController.file(fileInfo)
+      // FIX: getSingleFile returns a File object directly.
+      // We don't need .file here.
+      final videoFile = await DefaultCacheManager().getSingleFile(url);
+
+      _controller = VideoPlayerController.file(videoFile)
         ..initialize().then((_) {
           if (mounted) {
             setState(() {
               _initialized = true;
               _controller!.setLooping(true);
+              // CRITICAL: If the reel is already visible when init finishes, PLAY IT.
+              // This ensures auto-play works if the user scrolled quickly.
+              if (_isVisible) {
+                _controller!.play();
+              }
             });
           }
         });
@@ -105,8 +114,17 @@ class _ReelPlayerItemState extends State<ReelPlayerItem> with SingleTickerProvid
     return VisibilityDetector(
       key: Key(widget.reel.id),
       onVisibilityChanged: (info) {
+        if (!mounted) return;
+
+        // Update visibility state
+        final visible = info.visibleFraction > 0.6;
+        if (_isVisible != visible) {
+          _isVisible = visible;
+        }
+
         if (!_initialized || _controller == null) return;
-        if (info.visibleFraction > 0.6) {
+
+        if (visible) {
           if (!_controller!.value.isPlaying) _controller!.play();
         } else {
           if (_controller!.value.isPlaying) _controller!.pause();
@@ -123,7 +141,7 @@ class _ReelPlayerItemState extends State<ReelPlayerItem> with SingleTickerProvid
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  if (_initialized)
+                  if (_initialized && _controller != null)
                     Center(
                       child: AspectRatio(
                         aspectRatio: _controller!.value.aspectRatio,
@@ -131,6 +149,7 @@ class _ReelPlayerItemState extends State<ReelPlayerItem> with SingleTickerProvid
                       ),
                     )
                   else
+                  // Thumbnail while loading
                     CachedNetworkImage(
                       imageUrl: widget.reel.thumbnailUrl.startsWith('http')
                           ? widget.reel.thumbnailUrl
@@ -202,7 +221,7 @@ class _ReelPlayerItemState extends State<ReelPlayerItem> with SingleTickerProvid
                 ),
                 const SizedBox(height: 24),
 
-                // 4. Share Button (Updated to Sent icon)
+                // 4. Share Button
                 _buildCustomActionBtn(
                   child: const HugeIcon(icon: HugeIcons.strokeRoundedSent, color: Colors.white, size: 28),
                   label: "Share",

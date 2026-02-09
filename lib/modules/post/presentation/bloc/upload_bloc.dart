@@ -25,12 +25,14 @@ class SubmitReel extends UploadEvent {
   final File video;
   final String? caption;
   final String? audioId;
+  final double? audioStartTime; // Added
   final List<String>? tags;
 
   SubmitReel({
     required this.video,
     this.caption,
     this.audioId,
+    this.audioStartTime,
     this.tags,
   });
 }
@@ -82,7 +84,6 @@ class UploadBloc extends Bloc<UploadEvent, UploadState> {
 
   UploadBloc(this.repository) : super(UploadInitial()) {
 
-    // Post Handler
     on<SubmitPost>((event, emit) async {
       emit(Uploading());
       try {
@@ -99,7 +100,6 @@ class UploadBloc extends Bloc<UploadEvent, UploadState> {
       }
     });
 
-    // Reel Handler
     on<SubmitReel>((event, emit) async {
       emit(Uploading());
       try {
@@ -107,6 +107,7 @@ class UploadBloc extends Bloc<UploadEvent, UploadState> {
           videoFile: event.video,
           caption: event.caption,
           audioId: event.audioId,
+          audioStartTime: event.audioStartTime,
           tags: event.tags,
         );
         emit(UploadSuccess());
@@ -115,7 +116,6 @@ class UploadBloc extends Bloc<UploadEvent, UploadState> {
       }
     });
 
-    // Story Handler
     on<SubmitStory>((event, emit) async {
       emit(Uploading());
       try {
@@ -130,7 +130,6 @@ class UploadBloc extends Bloc<UploadEvent, UploadState> {
       }
     });
 
-    // User Search Handler
     on<SearchUsersEvent>((event, emit) async {
       try {
         final users = await repository.searchUsers(event.query);
@@ -140,7 +139,6 @@ class UploadBloc extends Bloc<UploadEvent, UploadState> {
       }
     });
 
-    // Song Search Handler
     on<SearchSongsEvent>((event, emit) async {
       try {
         final songs = await repository.searchSongs(event.query);

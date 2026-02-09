@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart'; // For debugPrint
 import '../../../../core/local_storage/hive_helper.dart';
 import '../../../../core/network/api_client.dart';
 import '../../../feed/domain/entities/comment_entity.dart';
@@ -9,25 +10,54 @@ class ReelsRepository {
 
   ReelsRepository(this._apiClient);
 
+  // --- HELPER: Fixes "Map<dynamic, dynamic>" error recursively ---
+  Map<String, dynamic> _safeCast(Map<dynamic, dynamic> map) {
+    return map.map((key, value) {
+      if (value is Map) {
+        return MapEntry(key.toString(), _safeCast(value));
+      }
+      if (value is List) {
+        return MapEntry(
+            key.toString(),
+            value.map((e) => e is Map ? _safeCast(e) : e).toList()
+        );
+      }
+      return MapEntry(key.toString(), value);
+    });
+  }
+
   // --- REEL FEED WITH SERVER SYNC & HIVE ---
   Future<List<ReelEntity>> getReelsFeed({int page = 1}) async {
-    // 1. Try to load from Cache first (only if page 1, to give instant UI)
+    print("🔴 DEBUG: getReelsFeed called for page $page");
+
+    // 1. Try to load from Cache first
     if (page == 1) {
-      final cachedData = HiveHelper.getCachedReels();
-      if (cachedData.isNotEmpty) {
-        // Return cached data immediately while we fetch fresh data
-        // Note: In a real app you might stream this, but for now we return cache if avail
-        // or just proceed. To keep it simple: We return fresh if possible, else cache.
-        // Actually, let's just use cache as fallback or initial load in Bloc.
+      try {
+        final cachedData = HiveHelper.getCachedReels();
+        print("🔴 DEBUG: Hive returned ${cachedData.length} items");
+
+        if (cachedData.isNotEmpty) {
+          // Note: We normally return here if we want cache-first strategy.
+          // For now, we just print to confirm it works.
+          // If you want to show cache immediately, uncomment the return below:
+          /*
+          final safeCache = cachedData.map((e) => ReelEntity.fromJson(_safeCast(e))).toList();
+          return safeCache;
+          */
+        }
+      } catch (e) {
+        print("🔴 DEBUG: Error reading cache: $e");
       }
     }
 
     try {
+      print("🔴 DEBUG: Fetching fresh data from API...");
       final feedResponse = await _apiClient.dio.get('/feed/reels', queryParameters: {'page': page, 'limit': 10});
 
       List<ReelEntity> reels = [];
       if (feedResponse.data['data'] != null && feedResponse.data['data']['reels'] != null) {
         final List data = feedResponse.data['data']['reels'];
+        print("🔴 DEBUG: API returned ${data.length} reels");
         reels = data.map((e) => ReelEntity.fromJson(e)).toList();
       }
 
@@ -46,23 +76,42 @@ class ReelsRepository {
           return reel;
         }).toList();
       } catch (e) {
-        // Continue even if sync fails
+        print("🔴 DEBUG: Sync saved state failed (ignoring): $e");
       }
 
-      // 2. Save Fresh Data to Cache (Only Page 1 to avoid overwriting feed with pagination data)
+      // 2. Save Fresh Data to Cache
       if (page == 1 && reels.isNotEmpty) {
-        // Convert Entities to JSON for Hive
+        print("🔴 DEBUG: Saving ${reels.length} items to Hive...");
         final reelsJson = reels.map((r) => r.toJson()).toList();
         await HiveHelper.cacheReels(reelsJson);
       }
 
       return reels;
     } catch (e) {
+      print("🔴 DEBUG: API failed: $e");
+
       // 3. Fallback to Cache on Error
       if (page == 1) {
+        print("🔴 DEBUG: Attempting fallback to cache...");
         final cachedData = HiveHelper.getCachedReels();
         if (cachedData.isNotEmpty) {
-          return cachedData.map((e) => ReelEntity.fromJson(e)).toList();
+          try {
+            // Apply _safeCast to fix the type error
+            final safeList = cachedData.map((e) {
+              // Ensure it's a map before casting
+              if (e is Map) {
+                return ReelEntity.fromJson(_safeCast(e));
+              }
+              print("🔴 DEBUG: Skipping invalid cache item: $e");
+              return null;
+            }).whereType<ReelEntity>().toList();
+
+            print("🔴 DEBUG: Successfully loaded ${safeList.length} from cache");
+            return safeList;
+          } catch (cacheError) {
+            print("🔴 DEBUG: CRITICAL Cache parsing error: $cacheError");
+            throw Exception("Cache corrupted: $cacheError");
+          }
         }
       }
       throw Exception("Failed to load reels feed");
@@ -75,9 +124,12 @@ class ReelsRepository {
     if (cachedData.isEmpty) return;
 
     final List<dynamic> updatedList = cachedData.map((item) {
-      // item is a Map<String, dynamic>
-      if (item['_id'] == updatedReel.id) {
-        return updatedReel.toJson();
+      if (item is Map) {
+        final mapItem = _safeCast(item);
+        if (mapItem['_id'] == updatedReel.id) {
+          return updatedReel.toJson();
+        }
+        return mapItem;
       }
       return item;
     }).toList();
@@ -109,7 +161,6 @@ class ReelsRepository {
   // --- COMMENTS ---
 
   Future<List<CommentEntity>> getComments(String reelId) async {
-    // Return Cache Immediately
     final cachedData = HiveHelper.getCachedComments(reelId);
 
     try {
@@ -117,13 +168,16 @@ class ReelsRepository {
 
       if (response.data['data'] != null && response.data['data']['comments'] != null) {
         final List data = response.data['data']['comments'];
-        await HiveHelper.cacheComments(reelId, data); // Update Cache
+        await HiveHelper.cacheComments(reelId, data);
         return data.map((e) => CommentEntity.fromJson(e)).toList();
       }
       return [];
     } catch (e) {
       if (cachedData.isNotEmpty) {
-        return cachedData.map((e) => CommentEntity.fromJson(e)).toList();
+        return cachedData.map((e) {
+          if (e is Map) return CommentEntity.fromJson(_safeCast(e));
+          return null;
+        }).whereType<CommentEntity>().toList();
       }
       rethrow;
     }
@@ -132,22 +186,19 @@ class ReelsRepository {
   Future<CommentEntity> addComment(String reelId, String text) async {
     final response = await _apiClient.dio.post(
       '/reel/comment/$reelId',
-      data: {'text': text}, // Changed to 'text' to match server requirement
+      data: {'text': text},
     );
     return CommentEntity.fromJson(response.data['data']);
   }
 
-  // --- MISSING METHODS ADDED BELOW ---
-
   Future<void> toggleCommentLike(String commentId, bool isLiked) async {
-    // API is a toggle endpoint
     await _apiClient.dio.post('/comment/like/$commentId');
   }
 
   Future<CommentEntity> replyToComment(String commentId, String text) async {
     final response = await _apiClient.dio.post(
       '/comment/reply/$commentId',
-      data: {'text': text}, // Changed to 'text' to match server requirement
+      data: {'text': text},
     );
     if (response.data['data'] != null) {
       return CommentEntity.fromJson(response.data['data']);
@@ -156,7 +207,6 @@ class ReelsRepository {
   }
 
   Future<List<CommentEntity>> getCommentReplies(String commentId) async {
-    // Assuming standard endpoint structure
     final response = await _apiClient.dio.get('/comment/replies/$commentId');
     if (response.data['data'] != null) {
       final data = response.data['data'];

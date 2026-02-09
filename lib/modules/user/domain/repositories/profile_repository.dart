@@ -1,5 +1,7 @@
 import 'dart:io';
 import '../../../feed/domain/entities/post_entity.dart';
+
+import '../../../reels/domain/entities/reel_entity.dart';
 import '../entities/user_entity.dart';
 
 abstract class ProfileRepository {
@@ -17,6 +19,9 @@ abstract class ProfileRepository {
 
   Future<List<UserEntity>> searchUsers(String query);
   Future<List<PostEntity>> getUserPosts(String userId);
+
+  // --- NEW: Fetch User Reels ---
+  Future<List<ReelEntity>> getUserReels(String userId);
 
   // --- NEW: Fetch Single Post Details ---
   Future<PostEntity> getPostDetails(String postId);

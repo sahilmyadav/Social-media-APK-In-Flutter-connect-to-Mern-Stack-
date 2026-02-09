@@ -11,6 +11,8 @@ import '../bloc/profile_bloc.dart';
 import '../widgets/profile_skeleton.dart';
 import '../../../../core/utils/snackbar_utils.dart';
 import 'post_details_screen.dart';
+import 'reel_player_screen.dart';
+import 'reel_grid_item.dart'; // Ensure this matches your file name
 
 class ProfileScreen extends StatefulWidget {
   final String userId;
@@ -38,15 +40,17 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
     super.dispose();
   }
 
+  // --- IMPROVED URL FIXER ---
   String _fixUrl(String? url) {
-    if (url == null || url.isEmpty) return "";
+    if (url == null || url.isEmpty || url.toLowerCase() == "null" || url.toLowerCase() == "undefined") {
+      return "";
+    }
     if (url.startsWith("http")) return url;
     return "https://clikkme.in$url";
   }
 
   Future<void> _onRefresh() async {
     context.read<ProfileBloc>().add(RefreshProfile(widget.userId));
-    // Simulated delay to show the refresh spinner
     await Future.delayed(const Duration(milliseconds: 1000));
   }
 
@@ -144,7 +148,6 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
                     const Divider(height: 24, indent: 16, endIndent: 16),
                   ],
 
-                  // Report
                   _buildOptionTile(
                       icon: HugeIcons.strokeRoundedAlert01,
                       text: 'Report account',
@@ -156,7 +159,6 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
                       }
                   ),
 
-                  // Block / Unblock
                   _buildOptionTile(
                       icon: isBlocked ? HugeIcons.strokeRoundedUserCheck01 : HugeIcons.strokeRoundedUserBlock01,
                       text: isBlocked ? 'Unblock user' : 'Block user',
@@ -223,6 +225,7 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
           } else if (state is ProfileLoaded) {
             final user = state.user;
             final posts = state.posts;
+            final reels = state.reels;
 
             return RefreshIndicator(
               onRefresh: _onRefresh,
@@ -288,7 +291,6 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
                           Text("@${user.username}", style: GoogleFonts.inter(fontWeight: FontWeight.w500, fontSize: 14, color: Colors.grey)),
                           const SizedBox(height: 20),
 
-                          // ACTION BUTTONS
                           Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 24),
                             child: Row(
@@ -331,11 +333,11 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
                     : TabBarView(
                   controller: _tabController,
                   children: [
+                    // POSTS TAB
                     posts.isEmpty
                         ? _buildEmptyState("No posts yet", HugeIcons.strokeRoundedCamera01, textColor)
                         : GridView.builder(
                       padding: const EdgeInsets.all(1),
-                      // --- FIXED: ENABLE SCROLLING FOR REFRESH INDICATOR ---
                       physics: const AlwaysScrollableScrollPhysics(),
                       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3, crossAxisSpacing: 1, mainAxisSpacing: 1, childAspectRatio: 1),
                       itemCount: posts.length,
@@ -355,7 +357,61 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
                         );
                       },
                     ),
-                    _buildEmptyState("No reels yet", HugeIcons.strokeRoundedVideo01, textColor),
+
+                    // REELS TAB (UPDATED)
+                    reels.isEmpty
+                        ? _buildEmptyState("No reels yet", HugeIcons.strokeRoundedVideo01, textColor)
+                        : GridView.builder(
+                      padding: const EdgeInsets.all(1),
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 3,
+                          crossAxisSpacing: 1,
+                          mainAxisSpacing: 1,
+                          childAspectRatio: 0.6
+                      ),
+                      itemCount: reels.length,
+                      itemBuilder: (context, index) {
+                        final reel = reels[index];
+
+                        // We pass BOTH url variants to the item.
+                        // The Item decides which one is valid.
+                        return GestureDetector(
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => ReelPlayerScreen(
+                                  videoUrl: _fixUrl(reel.videoUrl),
+                                  // We pass the thumb URL, but if it's broken,
+                                  // the player might show black until video loads.
+                                  thumbnailUrl: _fixUrl(reel.thumbnailUrl),
+                                ),
+                              ),
+                            );
+                          },
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              // ROBUST ITEM
+                              ReelGridItem(
+                                thumbnailUrl: _fixUrl(reel.thumbnailUrl),
+                                videoUrl: _fixUrl(reel.videoUrl),
+                              ),
+                              const Positioned(
+                                bottom: 5,
+                                left: 5,
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.play_arrow, color: Colors.white, size: 14),
+                                  ],
+                                ),
+                              )
+                            ],
+                          ),
+                        );
+                      },
+                    ),
                   ],
                 ),
               ),
@@ -372,7 +428,6 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
   }
 
   Widget _buildEmptyState(String text, dynamic icon, Color color) {
-    // Wrapped in SingleChildScrollView to allow refresh even on empty state
     return SingleChildScrollView(
       physics: const AlwaysScrollableScrollPhysics(),
       child: Container(

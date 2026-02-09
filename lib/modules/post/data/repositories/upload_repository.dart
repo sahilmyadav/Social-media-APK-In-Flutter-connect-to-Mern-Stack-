@@ -8,7 +8,7 @@ class UploadRepository {
 
   UploadRepository(this._apiClient);
 
-  //// 1. Upload Post (Supports up to 10 images/videos)
+  //// 1. Upload Post
   Future<void> uploadPost({
     required List<File> files,
     required String caption,
@@ -43,11 +43,12 @@ class UploadRepository {
     }
   }
 
-  //// 2. Upload Reel (Single video file)
+  //// 2. Upload Reel (Supports Audio ID & Start Time)
   Future<void> uploadReel({
     required File videoFile,
     String? caption,
     String? audioId,
+    double? audioStartTime, // Added start time
     List<String>? tags,
   }) async {
     try {
@@ -60,6 +61,7 @@ class UploadRepository {
         "file": await MultipartFile.fromFile(videoFile.path, filename: fileName),
         if (caption != null) "caption": caption,
         if (audioId != null) "audio": audioId,
+        if (audioStartTime != null) "audioStartTime": audioStartTime, // Send start time to backend
         if (tagsString != null) "tags": tagsString,
       });
 
@@ -71,7 +73,7 @@ class UploadRepository {
     }
   }
 
-  //// 3. Upload Story (24hr temporary post)
+  //// 3. Upload Story
   Future<void> uploadStory({
     required File file,
     String? caption,
@@ -95,7 +97,7 @@ class UploadRepository {
     }
   }
 
-  //// 4. Search Users for Tagging
+  //// 4. Search Users
   Future<List<Map<String, dynamic>>> searchUsers(String query) async {
     try {
       if (query.isEmpty) return [];
@@ -122,7 +124,6 @@ class UploadRepository {
   //// 5. Search Songs (Saavn API)
   Future<List<Map<String, dynamic>>> searchSongs(String query) async {
     try {
-      // Using a fresh Dio instance or full URL since this is an external API
       final dio = Dio();
       final response = await dio.get(
         'https://saavn.sumit.co/api/search/songs',

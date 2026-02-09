@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import '../../../feed/domain/entities/post_entity.dart';
+import '../../../feed/domain/entities/post_entity.dart';// Ensure this path matches
+import '../../../reels/domain/entities/reel_entity.dart';
 import '../../domain/entities/user_entity.dart';
 import '../../domain/repositories/profile_repository.dart';
 
@@ -22,14 +23,16 @@ class ProfileLoaded extends ProfileState {
   final UserEntity user;
   final bool isMe;
   final List<PostEntity> posts;
+  final List<ReelEntity> reels; // Added Reels List
 
-  ProfileLoaded(this.user, {this.isMe = false, this.posts = const []});
+  ProfileLoaded(this.user, {this.isMe = false, this.posts = const [], this.reels = const []});
 
-  ProfileLoaded copyWith({UserEntity? user, bool? isMe, List<PostEntity>? posts}) {
+  ProfileLoaded copyWith({UserEntity? user, bool? isMe, List<PostEntity>? posts, List<ReelEntity>? reels}) {
     return ProfileLoaded(
       user ?? this.user,
       isMe: isMe ?? this.isMe,
       posts: posts ?? this.posts,
+      reels: reels ?? this.reels,
     );
   }
 }
@@ -52,16 +55,24 @@ class ProfileBloc extends Bloc<ProfileEvent, ProfileState> {
         final user = await repository.getRemoteUserProfile(event.userId);
 
         List<PostEntity> posts = [];
+        List<ReelEntity> reels = [];
 
-        // 2. Only fetch posts if NOT blocked
+        // 2. Only fetch posts and reels if NOT blocked
         if (!user.isBlocked) {
-          posts = await repository.getUserPosts(event.userId);
+          // Fetch both concurrently for better performance
+          final results = await Future.wait([
+            repository.getUserPosts(event.userId),
+            repository.getUserReels(event.userId),
+          ]);
+
+          posts = results[0] as List<PostEntity>;
+          reels = results[1] as List<ReelEntity>;
         }
 
         // Check if viewing own profile (Mock check, ideally compare IDs)
         bool isMe = false;
 
-        emit(ProfileLoaded(user, isMe: isMe, posts: posts));
+        emit(ProfileLoaded(user, isMe: isMe, posts: posts, reels: reels));
       } catch (e) {
         if (state is! ProfileLoaded) {
           emit(ProfileError("Failed to load profile or user not found"));
@@ -73,10 +84,17 @@ class ProfileBloc extends Bloc<ProfileEvent, ProfileState> {
       try {
         final user = await repository.getRemoteUserProfile(event.userId);
         List<PostEntity> posts = [];
+        List<ReelEntity> reels = [];
+
         if (!user.isBlocked) {
-          posts = await repository.getUserPosts(event.userId);
+          final results = await Future.wait([
+            repository.getUserPosts(event.userId),
+            repository.getUserReels(event.userId),
+          ]);
+          posts = results[0] as List<PostEntity>;
+          reels = results[1] as List<ReelEntity>;
         }
-        emit(ProfileLoaded(user, isMe: false, posts: posts));
+        emit(ProfileLoaded(user, isMe: false, posts: posts, reels: reels));
       } catch (_) {}
     });
 
@@ -111,10 +129,11 @@ class ProfileBloc extends Bloc<ProfileEvent, ProfileState> {
     on<BlockUserEvent>((event, emit) async {
       final currentState = state;
       if (currentState is ProfileLoaded) {
-        // Optimistic UI: Mark as blocked immediately and clear posts
+        // Optimistic UI: Mark as blocked immediately and clear posts/reels
         emit(currentState.copyWith(
             user: currentState.user.copyWith(isBlocked: true, isFollowing: false),
-            posts: [] // Clear posts immediately
+            posts: [], // Clear posts immediately
+            reels: []  // Clear reels immediately
         ));
         try {
           await repository.blockUser(event.userId);
@@ -132,7 +151,7 @@ class ProfileBloc extends Bloc<ProfileEvent, ProfileState> {
         emit(currentState.copyWith(user: currentState.user.copyWith(isBlocked: false)));
         try {
           await repository.unblockUser(event.userId);
-          // Trigger refresh to get posts back
+          // Trigger refresh to get posts and reels back
           add(RefreshProfile(event.userId));
         } catch (e) {
           // Revert if failed

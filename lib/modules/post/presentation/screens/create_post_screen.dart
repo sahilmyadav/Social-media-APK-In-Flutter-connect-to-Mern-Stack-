@@ -3,7 +3,8 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:audioplayers/audioplayers.dart'; // Add this to pubspec.yaml
+import 'package:audioplayers/audioplayers.dart'; // Add audioplayers: ^5.2.1 to pubspec
+import 'package:video_player/video_player.dart'; // Add video_player: ^2.8.6 to pubspec
 import '../../../../core/utils/snackbar_utils.dart';
 import '../bloc/upload_bloc.dart';
 
@@ -31,25 +32,81 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   // Tagging State
   final List<Map<String, dynamic>> _selectedTags = [];
 
+  // Media Playback State
+  VideoPlayerController? _videoController;
+  final AudioPlayer _audioPlayer = AudioPlayer();
+
   // Music State
   Map<String, dynamic>? _selectedSong;
-  final AudioPlayer _audioPlayer = AudioPlayer();
-  String? _playingSongId; // To track which song is previewing
+  double _audioStartTime = 0.0; // In seconds
+
+  @override
+  void initState() {
+    super.initState();
+    // Set Audio Context to ensure it plays over other system sounds if needed
+    _audioPlayer.setAudioContext(const AudioContext(
+      android: AudioContextAndroid(
+        isSpeakerphoneOn: true,
+        stayAwake: true,
+        contentType: AndroidContentType.music,
+        usageType: AndroidUsageType.media,
+        audioFocus: AndroidAudioFocus.gain,
+      ),
+      iOS: AudioContextIOS(
+        category: AVAudioSessionCategory.playback,
+      ),
+    ));
+
+    if (widget.type == UploadType.reel && widget.mediaFiles.isNotEmpty) {
+      _initializeVideo();
+    }
+  }
+
+  void _initializeVideo() async {
+    _videoController = VideoPlayerController.file(widget.mediaFiles.first);
+    await _videoController!.initialize();
+    _videoController!.setLooping(true);
+    _videoController!.setVolume(1.0); // Default to original audio
+    _videoController!.play();
+    setState(() {});
+  }
+
+  void _syncAudioWithVideoLoop() {
+    if (_videoController == null || _selectedSong == null) return;
+
+    Duration lastPosition = Duration.zero;
+
+    _videoController!.addListener(() {
+      if (_videoController == null || !_videoController!.value.isInitialized) return;
+
+      final currentPos = _videoController!.value.position;
+
+      // Detect Loop: If current position is LESS than last position (and not just starting), video looped.
+      if (currentPos < lastPosition && lastPosition > const Duration(seconds: 1)) {
+        // Video looped, seek audio back to start time
+        _audioPlayer.seek(Duration(seconds: _audioStartTime.toInt()));
+      }
+      lastPosition = currentPos;
+    });
+  }
 
   @override
   void dispose() {
     _captionController.dispose();
+    _audioPlayer.stop();
     _audioPlayer.dispose();
+    _videoController?.dispose();
     super.dispose();
   }
 
   void _handleUpload() {
+    // FIX: Stop media immediately when user clicks Share
+    _audioPlayer.stop();
+    _videoController?.pause();
+
     final bloc = context.read<UploadBloc>();
     String caption = _captionController.text;
     List<String> tagIds = _selectedTags.map((e) => e['_id'].toString()).toList();
-
-    // If a song is selected, we can append a note or handle mute logic
-    // The API takes audioId.
 
     switch (widget.type) {
       case UploadType.post:
@@ -66,6 +123,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
           caption: caption,
           tags: tagIds,
           audioId: _selectedSong != null ? _selectedSong!['id'] : null,
+          audioStartTime: _selectedSong != null ? _audioStartTime : null,
         ));
         break;
       case UploadType.story:
@@ -98,7 +156,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
     );
   }
 
-  // --- Bottom Sheet: Add Music ---
+  // --- Bottom Sheet: Select Music ---
   void _showMusicSheet(BuildContext context, bool isDark) {
     showModalBottomSheet(
       context: context,
@@ -109,8 +167,79 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
         isDark: isDark,
         audioPlayer: _audioPlayer,
         onSongSelected: (song) {
-          setState(() => _selectedSong = song);
-          Navigator.pop(context);
+          Navigator.pop(context); // Close picker
+          // Open Adjust Sheet immediately (Insta style)
+          // Small delay to ensure pop animation clears and player doesn't glitch
+          Future.delayed(const Duration(milliseconds: 100), () {
+            if (context.mounted) {
+              _openAdjustAudioSheet(context, isDark, song);
+            }
+          });
+        },
+      ),
+    );
+  }
+
+  // --- Bottom Sheet: Adjust/Trim Audio ---
+  void _openAdjustAudioSheet(BuildContext context, bool isDark, Map<String, dynamic> song) {
+    // Determine preview URL (Prefer 96kbps, fallback to last available)
+    final downloadUrls = song['downloadUrl'] as List<dynamic>?;
+    String? previewUrl;
+    if (downloadUrls != null && downloadUrls.isNotEmpty) {
+      // Logic: Try to find specific quality, otherwise grab the one that looks like an mp4/aac
+      var match = downloadUrls.firstWhere(
+              (e) => e['quality'] == '96kbps',
+          orElse: () => downloadUrls.last
+      );
+      previewUrl = match['url'];
+    }
+
+    if (previewUrl == null) {
+      SnackbarUtils.showError(context, "Cannot play this song");
+      return;
+    }
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      enableDrag: false, // Prevent accidental closing while scrubbing
+      backgroundColor: Colors.black, // Always dark for focus
+      builder: (context) => _AdjustAudioSheet(
+        isDark: isDark,
+        videoController: _videoController,
+        audioPlayer: _audioPlayer,
+        songUrl: previewUrl!,
+        songDuration: Duration(seconds: song['duration'] ?? 180),
+        songName: song['name'],
+        artistName: (song['artists']?['primary'] as List?)?.first['name'] ?? "Unknown",
+        albumArt: (song['image'] as List?)?.last['url'],
+        onConfirm: (startTime) {
+          setState(() {
+            _selectedSong = song;
+            _audioStartTime = startTime;
+          });
+
+          // Mute original video, play selected audio from start time
+          _videoController?.play();
+          _videoController?.setVolume(0.0);
+
+          _audioPlayer.setSourceUrl(previewUrl!);
+          _audioPlayer.seek(Duration(seconds: startTime.toInt()));
+          _audioPlayer.resume();
+          _syncAudioWithVideoLoop();
+        },
+        onCancel: () {
+          // If canceled, revert to original audio if no song was previously selected
+          if (_selectedSong == null) {
+            _videoController?.setVolume(1.0);
+            _audioPlayer.stop();
+          } else {
+            // If we had a song selected before, seek back to *that* song's time
+            _audioPlayer.seek(Duration(seconds: _audioStartTime.toInt()));
+            _audioPlayer.resume();
+          }
+          // Ensure video keeps playing in loop
+          _videoController?.play();
         },
       ),
     );
@@ -121,16 +250,20 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final textColor = isDark ? Colors.white : Colors.black;
     final subTextColor = isDark ? Colors.grey[400] : Colors.grey[600];
-    final cardColor = isDark ? Colors.grey[900] : Colors.white;
 
     String title = widget.type == UploadType.post ? "New Post" :
     widget.type == UploadType.reel ? "New Reel" : "New Story";
 
-    ImageProvider? imageProvider;
-    if (widget.type == UploadType.reel && widget.thumbnailData != null) {
-      imageProvider = MemoryImage(widget.thumbnailData!);
+    Widget previewWidget;
+    if (widget.type == UploadType.reel && _videoController != null && _videoController!.value.isInitialized) {
+      previewWidget = AspectRatio(
+        aspectRatio: _videoController!.value.aspectRatio,
+        child: VideoPlayer(_videoController!),
+      );
     } else if (widget.mediaFiles.isNotEmpty) {
-      imageProvider = FileImage(widget.mediaFiles.first);
+      previewWidget = Image.file(widget.mediaFiles.first, fit: BoxFit.cover);
+    } else {
+      previewWidget = Container(color: Colors.grey);
     }
 
     return Scaffold(
@@ -141,7 +274,10 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
         elevation: 0,
         leading: IconButton(
           icon: Icon(Icons.arrow_back, color: textColor),
-          onPressed: () => Navigator.pop(context),
+          onPressed: () {
+            _audioPlayer.stop();
+            Navigator.pop(context);
+          },
         ),
         actions: [
           BlocBuilder<UploadBloc, UploadState>(
@@ -185,11 +321,17 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                       decoration: BoxDecoration(
                         color: Colors.grey[200],
                         borderRadius: BorderRadius.circular(8),
-                        image: imageProvider != null
-                            ? DecorationImage(image: imageProvider, fit: BoxFit.cover)
-                            : null,
                       ),
-                      child: imageProvider == null ? const Icon(Icons.video_camera_back, color: Colors.grey) : null,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: FittedBox(
+                          fit: BoxFit.cover,
+                          child: SizedBox(
+                              width: 100, height: 100,
+                              child: previewWidget
+                          ),
+                        ),
+                      ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
@@ -209,7 +351,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
               ),
               Divider(height: 1, color: isDark ? Colors.grey[800] : const Color(0xFFEEEEEE)),
 
-              // --- 2. Action Tiles (Insta Style) ---
+              // --- 2. Action Tiles ---
 
               // Tag People
               ListTile(
@@ -233,26 +375,249 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                     maxLines: 1, overflow: TextOverflow.ellipsis,
                   ),
                   subtitle: _selectedSong != null
-                      ? Text("Original audio will be muted", style: TextStyle(color: subTextColor, fontSize: 12))
+                      ? Text("Original audio muted • Start: ${_audioStartTime.toInt()}s", style: TextStyle(color: subTextColor, fontSize: 12))
                       : null,
                   leading: Icon(Icons.music_note_outlined, color: textColor),
                   trailing: _selectedSong != null
                       ? IconButton(
                     icon: const Icon(Icons.close, color: Colors.grey),
-                    onPressed: () => setState(() => _selectedSong = null),
+                    onPressed: () {
+                      setState(() {
+                        _selectedSong = null;
+                        _videoController?.setVolume(1.0); // Unmute video
+                        _audioPlayer.stop();
+                      });
+                    },
                   )
                       : Icon(Icons.chevron_right, color: subTextColor),
                   onTap: () => _showMusicSheet(context, isDark),
                 ),
                 Divider(height: 1, indent: 56, color: isDark ? Colors.grey[800] : const Color(0xFFEEEEEE)),
               ],
-
-              // Removed Hardcoded Location/Advanced options as requested
             ],
           ),
         ),
       ),
     );
+  }
+}
+
+// ==============================================================================
+// ----------------------- AUDIO ADJUST SHEET (INSTA STYLE) ---------------------
+// ==============================================================================
+
+class _AdjustAudioSheet extends StatefulWidget {
+  final bool isDark;
+  final VideoPlayerController? videoController;
+  final AudioPlayer audioPlayer;
+  final String songUrl;
+  final Duration songDuration;
+  final String songName;
+  final String artistName;
+  final String? albumArt;
+  final Function(double) onConfirm;
+  final VoidCallback onCancel;
+
+  const _AdjustAudioSheet({
+    required this.isDark,
+    required this.videoController,
+    required this.audioPlayer,
+    required this.songUrl,
+    required this.songDuration,
+    required this.songName,
+    required this.artistName,
+    this.albumArt,
+    required this.onConfirm,
+    required this.onCancel,
+  });
+
+  @override
+  State<_AdjustAudioSheet> createState() => _AdjustAudioSheetState();
+}
+
+class _AdjustAudioSheetState extends State<_AdjustAudioSheet> {
+  double _currentStartSeconds = 0.0;
+  Duration _lastVideoPos = Duration.zero;
+
+  @override
+  void initState() {
+    super.initState();
+    _startPreview();
+  }
+
+  void _startPreview() async {
+    // FIX: Force video to play explicitly when sheet opens to run parallel with music
+    if (widget.videoController != null) {
+      if (!widget.videoController!.value.isPlaying) {
+        await widget.videoController!.play();
+      }
+      widget.videoController!.setVolume(0.0); // Mute video audio
+    }
+
+    // Ensure player is stopped before starting new source
+    await widget.audioPlayer.stop();
+    await widget.audioPlayer.play(UrlSource(widget.songUrl));
+
+    // Add loop listener
+    widget.videoController?.addListener(_videoLoopListener);
+  }
+
+  void _videoLoopListener() {
+    if (widget.videoController == null) return;
+
+    final currentPos = widget.videoController!.value.position;
+
+    // Check for loop: if current position jumped BACKWARDS significantly
+    if (currentPos < _lastVideoPos && _lastVideoPos > const Duration(seconds: 1)) {
+      // Video looped, seek audio back to selected start
+      widget.audioPlayer.seek(Duration(seconds: _currentStartSeconds.toInt()));
+    }
+    _lastVideoPos = currentPos;
+  }
+
+  void _onSliderChange(double value) {
+    setState(() {
+      _currentStartSeconds = value;
+    });
+    // Seek audio immediately to give feedback on position
+    widget.audioPlayer.seek(Duration(seconds: value.toInt()));
+  }
+
+  @override
+  void dispose() {
+    widget.videoController?.removeListener(_videoLoopListener);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.9, // Almost full screen
+      color: Colors.black, // Always dark for immersive feel
+      child: Column(
+        children: [
+          // Top Bar
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                TextButton(
+                  onPressed: () {
+                    widget.onCancel();
+                    Navigator.pop(context);
+                  },
+                  child: const Text("Cancel", style: TextStyle(color: Colors.white, fontSize: 16)),
+                ),
+                const Text("Music", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                TextButton(
+                  onPressed: () {
+                    widget.onConfirm(_currentStartSeconds);
+                    Navigator.pop(context);
+                  },
+                  child: const Text("Done", style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold, fontSize: 16)),
+                ),
+              ],
+            ),
+          ),
+
+          // Video Preview Area
+          Expanded(
+            child: Center(
+              child: widget.videoController != null && widget.videoController!.value.isInitialized
+                  ? AspectRatio(
+                aspectRatio: widget.videoController!.value.aspectRatio,
+                child: VideoPlayer(widget.videoController!),
+              )
+                  : Container(color: Colors.grey[900], child: const Center(child: CircularProgressIndicator(color: Colors.white))),
+            ),
+          ),
+
+          // Song Info & Scrubber
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: const BoxDecoration(
+              color: Color(0xFF1C1C1E),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: Image.network(widget.albumArt ?? "", width: 50, height: 50, fit: BoxFit.cover, errorBuilder: (c,e,s) => Container(color: Colors.grey, width: 50, height: 50)),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(widget.songName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16), maxLines: 1, overflow: TextOverflow.ellipsis),
+                          Text(widget.artistName, style: const TextStyle(color: Colors.grey, fontSize: 14), maxLines: 1, overflow: TextOverflow.ellipsis),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+
+                // Audio Scrubber (Visual representation)
+                Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    // Fake waveform background
+                    Container(
+                      height: 48,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[800],
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.grey[700]!),
+                      ),
+                      child: const Center(child: Text("||||||||||||||||||||||||||||||", style: TextStyle(color: Colors.grey, letterSpacing: 2, fontSize: 20))),
+                    ),
+                    // Real Slider
+                    SliderTheme(
+                      data: SliderTheme.of(context).copyWith(
+                        trackHeight: 48,
+                        activeTrackColor: Colors.transparent,
+                        inactiveTrackColor: Colors.transparent,
+                        thumbColor: Colors.white,
+                        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8, elevation: 4),
+                        overlayShape: SliderComponentShape.noOverlay,
+                      ),
+                      child: Slider(
+                        value: _currentStartSeconds,
+                        min: 0,
+                        max: widget.songDuration.inSeconds.toDouble(),
+                        onChanged: _onSliderChange,
+                      ),
+                    ),
+                    // Current Time Indicator Text
+                    Positioned(
+                      top: -20,
+                      child: Text(
+                        "Start at: ${_formatDuration(Duration(seconds: _currentStartSeconds.toInt()))}",
+                        style: const TextStyle(color: Colors.white, fontSize: 12),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatDuration(Duration duration) {
+    String twoDigits(int n) => n.toString().padLeft(2, "0");
+    String twoDigitMinutes = twoDigits(duration.inMinutes.remainder(60));
+    String twoDigitSeconds = twoDigits(duration.inSeconds.remainder(60));
+    return "$twoDigitMinutes:$twoDigitSeconds";
   }
 }
 
@@ -308,7 +673,6 @@ class _TagPeopleSheetState extends State<_TagPeopleSheet> {
   Widget build(BuildContext context) {
     final textColor = widget.isDark ? Colors.white : Colors.black;
     final subTextColor = widget.isDark ? Colors.grey[400] : Colors.grey[600];
-    final bgColor = widget.isDark ? Colors.grey[900] : Colors.white;
     final inputFill = widget.isDark ? Colors.grey[800] : Colors.grey[100];
 
     return Container(
@@ -316,7 +680,6 @@ class _TagPeopleSheetState extends State<_TagPeopleSheet> {
       padding: const EdgeInsets.only(top: 16),
       child: Column(
         children: [
-          // Handle
           Container(
             width: 40, height: 4,
             decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)),
@@ -324,7 +687,6 @@ class _TagPeopleSheetState extends State<_TagPeopleSheet> {
           const SizedBox(height: 16),
           Text("Tag People", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: textColor)),
 
-          // Search Box
           Padding(
             padding: const EdgeInsets.all(16.0),
             child: TextField(
@@ -344,7 +706,6 @@ class _TagPeopleSheetState extends State<_TagPeopleSheet> {
             ),
           ),
 
-          // Selected Chips
           if (_currentTags.isNotEmpty)
             SizedBox(
               height: 50,
@@ -376,7 +737,6 @@ class _TagPeopleSheetState extends State<_TagPeopleSheet> {
 
           const Divider(),
 
-          // List
           Expanded(
             child: BlocBuilder<UploadBloc, UploadState>(
               builder: (context, state) {
@@ -445,10 +805,12 @@ class _MusicPickerSheetState extends State<_MusicPickerSheet> {
   Timer? _debounce;
   String? _previewingUrl;
 
+  // FIX: Flag to prevent stopping audio when we select a song (to move to next screen)
+  bool _stopAudioOnDispose = true;
+
   @override
   void initState() {
     super.initState();
-    // Trigger initial search for "Trending"
     context.read<UploadBloc>().add(SearchSongsEvent("trending hits"));
   }
 
@@ -456,7 +818,9 @@ class _MusicPickerSheetState extends State<_MusicPickerSheet> {
   void dispose() {
     _searchController.dispose();
     _debounce?.cancel();
-    widget.audioPlayer.stop(); // Stop music when sheet closes
+    if (_stopAudioOnDispose) {
+      widget.audioPlayer.stop(); // Only stop if we are NOT moving to adjustment screen
+    }
     super.dispose();
   }
 
@@ -469,15 +833,18 @@ class _MusicPickerSheetState extends State<_MusicPickerSheet> {
 
   Future<void> _togglePreview(String url) async {
     if (_previewingUrl == url) {
-      // Stop
       await widget.audioPlayer.stop();
       setState(() => _previewingUrl = null);
     } else {
-      // Play
       await widget.audioPlayer.stop();
       setState(() => _previewingUrl = url);
       await widget.audioPlayer.play(UrlSource(url));
     }
+  }
+
+  void _handleSelection(Map<String, dynamic> song) {
+    _stopAudioOnDispose = false; // Important: Don't kill audio, we need it in next screen
+    widget.onSongSelected(song);
   }
 
   @override
@@ -528,11 +895,9 @@ class _MusicPickerSheetState extends State<_MusicPickerSheet> {
                     itemCount: state.songs.length,
                     itemBuilder: (context, index) {
                       final song = state.songs[index];
-                      // Extract best download URL for preview (e.g., 96kbps or last in list)
                       final downloadUrls = song['downloadUrl'] as List<dynamic>?;
                       String? previewUrl;
                       if (downloadUrls != null && downloadUrls.isNotEmpty) {
-                        // Try to find 96kbps, else take last
                         var match = downloadUrls.firstWhere((e) => e['quality'] == '96kbps', orElse: () => downloadUrls.last);
                         previewUrl = match['url'];
                       }
@@ -565,7 +930,7 @@ class _MusicPickerSheetState extends State<_MusicPickerSheet> {
                         trailing: SizedBox(
                           height: 30,
                           child: ElevatedButton(
-                            onPressed: () => widget.onSongSelected(song),
+                            onPressed: () => _handleSelection(song),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: isPlaying ? Colors.blue : Colors.grey[200],
                               elevation: 0,
