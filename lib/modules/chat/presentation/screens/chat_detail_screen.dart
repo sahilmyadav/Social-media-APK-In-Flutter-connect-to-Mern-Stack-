@@ -11,7 +11,11 @@ class ChatDetailScreen extends StatefulWidget {
   final UserEntity user;
   final ChatBloc chatBloc;
 
-  const ChatDetailScreen({super.key, required this.threadId, required this.user, required this.chatBloc});
+  const ChatDetailScreen(
+      {super.key,
+      required this.threadId,
+      required this.user,
+      required this.chatBloc});
 
   @override
   State<ChatDetailScreen> createState() => _ChatDetailScreenState();
@@ -45,7 +49,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               icon: const Icon(Icons.call),
               onPressed: () {
                 final callBloc = context.read<CallBloc>();
-                callBloc.add(StartCallEvent(widget.user.id, 'voice')); // 'voice' call
+                callBloc.add(
+                    StartCallEvent(widget.user.id, 'voice')); // 'voice' call
                 Navigator.push(
                   context,
                   MaterialPageRoute(
@@ -63,7 +68,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               icon: const Icon(Icons.videocam),
               onPressed: () {
                 final callBloc = context.read<CallBloc>();
-                callBloc.add(StartCallEvent(widget.user.id, 'video')); // 'video' call
+                callBloc.add(
+                    StartCallEvent(widget.user.id, 'video')); // 'video' call
                 Navigator.push(
                   context,
                   MaterialPageRoute(
@@ -83,20 +89,54 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             Expanded(
               child: BlocBuilder<ChatBloc, ChatState>(
                 builder: (context, state) {
+                  if (state is ChatLoading) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  if (state is ChatError) {
+                    return Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(state.message,
+                              style: const TextStyle(color: Colors.red)),
+                          const SizedBox(height: 8),
+                          ElevatedButton(
+                            onPressed: () {
+                              widget.chatBloc
+                                  .add(LoadMessages(widget.threadId));
+                            },
+                            child: const Text("Retry"),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
                   if (state is MessagesLoaded) {
+                    if (state.messages.isEmpty) {
+                      return const Center(
+                        child: Text("No messages yet. Say hi! 👋",
+                            style: TextStyle(color: Colors.grey, fontSize: 16)),
+                      );
+                    }
                     return ListView.builder(
                       reverse: true,
                       itemCount: state.messages.length,
                       itemBuilder: (context, index) {
-                        final message = state.messages[state.messages.length - 1 - index];
+                        final message =
+                            state.messages[state.messages.length - 1 - index];
                         final isMe = message.isMe;
                         return Align(
-                          alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+                          alignment: isMe
+                              ? Alignment.centerRight
+                              : Alignment.centerLeft,
                           child: Container(
-                            margin: const EdgeInsets.symmetric(vertical: 2, horizontal: 10),
+                            margin: const EdgeInsets.symmetric(
+                                vertical: 2, horizontal: 10),
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
-                              color: isMe ? const Color(0xFF3797F0) : Colors.grey[800],
+                              color: isMe
+                                  ? const Color(0xFF3797F0)
+                                  : Colors.grey[800],
                               borderRadius: BorderRadius.circular(20),
                             ),
                             child: Text(
@@ -139,7 +179,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                       icon: const Icon(Icons.send, color: Colors.blue),
                       onPressed: () {
                         if (_controller.text.isNotEmpty) {
-                          widget.chatBloc.add(SendMessageEvent(widget.threadId, _controller.text));
+                          widget.chatBloc.add(SendMessageEvent(
+                              widget.threadId, _controller.text));
                           _controller.clear();
                         }
                       },

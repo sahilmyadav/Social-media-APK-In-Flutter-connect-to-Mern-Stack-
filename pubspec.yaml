@@ -35,7 +35,7 @@ dependencies:
   timeago: ^3.6.1              # For "5 mins ago" timestamps
   share_plus: ^7.2.1
 
-  photo_manager: ^3.0.0-dev.1  # For fetching gallery images efficiently
+  photo_manager: ^3.5.0  # Upgraded for better Limited Access support
   image_editor_plus: ^1.0.0    # Optional: For cropping/filters (Insta-like)
   video_player: ^2.8.2         # To preview videos before upload
   path_provider: ^2.1.2        # File system access
