@@ -14,10 +14,12 @@ class StoryFeedEntity extends Equatable {
 
   factory StoryFeedEntity.fromJson(Map<String, dynamic> json) {
     var list = json['stories'] as List;
-    List<StoryItemEntity> storyList = list.map((i) => StoryItemEntity.fromJson(i)).toList();
+    List<StoryItemEntity> storyList =
+        list.map((i) => StoryItemEntity.fromJson(i)).toList();
 
     // Check if any story is unseen
-    bool unseen = storyList.any((s) => !s.hasViewed);
+    bool unseen =
+        json['hasUnseenStories'] ?? storyList.any((s) => !s.hasViewed);
 
     return StoryFeedEntity(
       user: UserEntity.fromJson(json['user']),
@@ -36,6 +38,8 @@ class StoryItemEntity extends Equatable {
   final String mediaType; // 'image' or 'video'
   final String caption;
   final bool hasViewed;
+  final int viewsCount;
+  final int duration;
   final String createdAt;
 
   const StoryItemEntity({
@@ -44,20 +48,37 @@ class StoryItemEntity extends Equatable {
     required this.mediaType,
     this.caption = '',
     required this.hasViewed,
+    this.viewsCount = 0,
+    this.duration = 5,
     required this.createdAt,
   });
 
   factory StoryItemEntity.fromJson(Map<String, dynamic> json) {
+    final media = json['media'];
+    String parsedMediaUrl = '';
+    String parsedMediaType = 'image';
+
+    if (media is Map<String, dynamic>) {
+      parsedMediaUrl = media['url'] ?? '';
+      parsedMediaType = media['type'] ?? 'image';
+    } else {
+      parsedMediaUrl = json['media_url'] ?? '';
+      parsedMediaType = json['media_type'] ?? 'image';
+    }
+
     return StoryItemEntity(
-      id: json['_id'],
-      mediaUrl: json['media_url'],
-      mediaType: json['media_type'] ?? 'image',
+      id: json['_id'] ?? '',
+      mediaUrl: parsedMediaUrl,
+      mediaType: parsedMediaType,
       caption: json['caption'] ?? '',
       hasViewed: json['hasViewed'] ?? false,
-      createdAt: json['createdAt'],
+      viewsCount: json['views_count'] ?? 0,
+      duration:
+          (json['duration'] is num) ? (json['duration'] as num).toInt() : 5,
+      createdAt: json['createdAt'] ?? '',
     );
   }
 
   @override
-  List<Object?> get props => [id, hasViewed];
+  List<Object?> get props => [id, hasViewed, viewsCount];
 }

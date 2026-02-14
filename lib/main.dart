@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'core/theme/app_theme.dart';
-import 'core/local_storage/hive_helper.dart'; // Import HiveHelper
+import 'core/local_storage/hive_helper.dart';
+import 'core/utils/responsive.dart';
 import 'injection_container.dart' as di;
 import 'modules/auth/presentation/bloc/auth_bloc.dart';
 import 'modules/auth/presentation/bloc/auth_event.dart';
@@ -10,6 +11,9 @@ import 'modules/auth/presentation/screens/login_screen.dart';
 import 'modules/auth/presentation/screens/otp_verification_screen.dart';
 import 'modules/auth/presentation/screens/complete_profile_screen.dart';
 import 'modules/post/presentation/bloc/upload_bloc.dart';
+import 'modules/chat/presentation/bloc/chat_bloc.dart';
+import 'modules/call/presentation/bloc/call_bloc.dart';
+import 'modules/live/presentation/bloc/live_bloc.dart';
 import 'presentation/main_screen.dart';
 
 void main() async {
@@ -37,9 +41,20 @@ class MyApp extends StatelessWidget {
         BlocProvider(
           create: (_) => di.sl<AuthBloc>()..add(AppStarted()),
         ),
-
         BlocProvider(
           create: (_) => di.sl<UploadBloc>(),
+        ),
+        // Global ChatBloc — keeps socket alive across screens
+        BlocProvider(
+          create: (_) => di.sl<ChatBloc>()..add(InitChat()),
+        ),
+        // Global CallBloc — accessible from ChatDetailScreen and call screens
+        BlocProvider(
+          create: (_) => di.sl<CallBloc>(),
+        ),
+        // Global LiveBloc — accessible throughout the app for streaming
+        BlocProvider(
+          create: (_) => di.sl<LiveBloc>(),
         ),
       ],
       child: MaterialApp(
@@ -48,6 +63,10 @@ class MyApp extends StatelessWidget {
         theme: AppTheme.lightTheme,
         darkTheme: AppTheme.darkTheme,
         themeMode: ThemeMode.system,
+        builder: (context, child) {
+          Responsive.init(context);
+          return child!;
+        },
         home: const AuthWrapper(),
       ),
     );

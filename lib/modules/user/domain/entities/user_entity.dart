@@ -13,7 +13,10 @@ class UserEntity extends Equatable {
   final int postsCount;
   final bool isFollowing;
   final bool isBlocked; // Checks if I blocked them
-  final List<String> blockedUsers; // List of IDs I have blocked (only for current user)
+  final List<String>
+      blockedUsers; // List of IDs I have blocked (only for current user)
+  final bool isOnline;
+  final String? lastSeen;
 
   const UserEntity({
     required this.id,
@@ -29,6 +32,8 @@ class UserEntity extends Equatable {
     this.isFollowing = false,
     this.isBlocked = false,
     this.blockedUsers = const [],
+    this.isOnline = false,
+    this.lastSeen,
   });
 
   factory UserEntity.fromJson(Map<String, dynamic> json) {
@@ -42,12 +47,16 @@ class UserEntity extends Equatable {
       coverPhoto: json['coverPhoto'],
       followersCount: json['followersCount'] ?? 0,
       followingCount: json['followingCount'] ?? 0,
-      postsCount: json['postsCount'] ?? 0, // Mapped from 'totalPosts' or 'postsCount'
+      postsCount:
+          json['postsCount'] ?? 0, // Mapped from 'totalPosts' or 'postsCount'
       isFollowing: json['isFollowing'] ?? false,
       isBlocked: json['isBlocked'] ?? false,
       blockedUsers: (json['blockedUsers'] as List<dynamic>?)
-          ?.map((e) => e.toString())
-          .toList() ?? [],
+              ?.map((e) => e.toString())
+              .toList() ??
+          [],
+      isOnline: json['isOnline'] ?? false,
+      lastSeen: json['lastSeen'],
     );
   }
 
@@ -56,6 +65,8 @@ class UserEntity extends Equatable {
     int? followersCount,
     bool? isBlocked,
     List<String>? blockedUsers,
+    bool? isOnline,
+    String? lastSeen,
   }) {
     return UserEntity(
       id: id,
@@ -71,9 +82,21 @@ class UserEntity extends Equatable {
       isFollowing: isFollowing ?? this.isFollowing,
       isBlocked: isBlocked ?? this.isBlocked,
       blockedUsers: blockedUsers ?? this.blockedUsers,
+      isOnline: isOnline ?? this.isOnline,
+      lastSeen: lastSeen ?? this.lastSeen,
     );
   }
 
   @override
-  List<Object?> get props => [id, username, isFollowing, isBlocked, followersCount, coverPhoto, blockedUsers];
+  List<Object?> get props => [
+        id,
+        username,
+        isFollowing,
+        isBlocked,
+        followersCount,
+        coverPhoto,
+        blockedUsers,
+        isOnline,
+        lastSeen
+      ];
 }

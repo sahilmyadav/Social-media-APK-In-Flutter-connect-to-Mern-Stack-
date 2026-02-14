@@ -9,6 +9,8 @@ import '../modules/reels/presentation/screens/reels_screen.dart';
 import '../modules/user/presentation/bloc/profile_bloc.dart';
 import '../modules/user/presentation/bloc/search_bloc.dart';
 import '../modules/reels/presentation/bloc/reels_bloc.dart';
+import '../modules/call/presentation/bloc/call_bloc.dart';
+import '../modules/call/presentation/screens/incoming_call_screen.dart';
 import '../injection_container.dart'; // Needed for sl()
 
 class MainScreen extends StatefulWidget {
@@ -67,45 +69,76 @@ class _MainScreenState extends State<MainScreen> {
     final inactiveColor = Colors.grey;
     final pages = _buildPages();
 
-    return Scaffold(
-      body: IndexedStack(
-        index: _selectedIndex,
-        children: pages,
-      ),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _selectedIndex,
-        onTap: _onItemTapped,
-        type: BottomNavigationBarType.fixed,
-        showSelectedLabels: false,
-        showUnselectedLabels: false,
-        backgroundColor: isDark ? Colors.black : Colors.white,
-        items: [
-          BottomNavigationBarItem(
-            icon: HugeIcon(icon: HugeIcons.strokeRoundedHome01, color: inactiveColor),
-            activeIcon: HugeIcon(icon: HugeIcons.strokeRoundedHome01, color: activeColor),
-            label: 'Home',
-          ),
-          BottomNavigationBarItem(
-            icon: HugeIcon(icon: HugeIcons.strokeRoundedSearch01, color: inactiveColor),
-            activeIcon: HugeIcon(icon: HugeIcons.strokeRoundedSearch01, color: activeColor),
-            label: 'Search',
-          ),
-          BottomNavigationBarItem(
-            icon: HugeIcon(icon: HugeIcons.strokeRoundedPlusSign, color: inactiveColor, size: 32),
-            activeIcon: HugeIcon(icon: HugeIcons.strokeRoundedPlusSign, color: activeColor, size: 32),
-            label: 'Add',
-          ),
-          BottomNavigationBarItem(
-            icon: HugeIcon(icon: HugeIcons.strokeRoundedVideo01, color: inactiveColor),
-            activeIcon: HugeIcon(icon: HugeIcons.strokeRoundedVideoReplay, color: activeColor),
-            label: 'Reels',
-          ),
-          BottomNavigationBarItem(
-            icon: HugeIcon(icon: HugeIcons.strokeRoundedUser, color: inactiveColor),
-            activeIcon: HugeIcon(icon: HugeIcons.strokeRoundedUser, color: activeColor),
-            label: 'Profile',
-          ),
-        ],
+    return BlocListener<CallBloc, CallState>(
+      listener: (context, state) {
+        if (state is CallRinging && state.isIncoming) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => IncomingCallScreen(
+                callerName: state.call.callerName,
+                callerPic: state.call.callerPic,
+                isIncoming: true,
+                callType: state.call.type,
+              ),
+            ),
+          );
+        }
+      },
+      child: Scaffold(
+        body: IndexedStack(
+          index: _selectedIndex,
+          children: pages,
+        ),
+        bottomNavigationBar: BottomNavigationBar(
+          currentIndex: _selectedIndex,
+          onTap: _onItemTapped,
+          type: BottomNavigationBarType.fixed,
+          showSelectedLabels: false,
+          showUnselectedLabels: false,
+          backgroundColor: isDark ? Colors.black : Colors.white,
+          items: [
+            BottomNavigationBarItem(
+              icon: HugeIcon(
+                  icon: HugeIcons.strokeRoundedHome01, color: inactiveColor),
+              activeIcon: HugeIcon(
+                  icon: HugeIcons.strokeRoundedHome01, color: activeColor),
+              label: 'Home',
+            ),
+            BottomNavigationBarItem(
+              icon: HugeIcon(
+                  icon: HugeIcons.strokeRoundedSearch01, color: inactiveColor),
+              activeIcon: HugeIcon(
+                  icon: HugeIcons.strokeRoundedSearch01, color: activeColor),
+              label: 'Search',
+            ),
+            BottomNavigationBarItem(
+              icon: HugeIcon(
+                  icon: HugeIcons.strokeRoundedPlusSign,
+                  color: inactiveColor,
+                  size: 32),
+              activeIcon: HugeIcon(
+                  icon: HugeIcons.strokeRoundedPlusSign,
+                  color: activeColor,
+                  size: 32),
+              label: 'Add',
+            ),
+            BottomNavigationBarItem(
+              icon: HugeIcon(
+                  icon: HugeIcons.strokeRoundedVideo01, color: inactiveColor),
+              activeIcon: HugeIcon(
+                  icon: HugeIcons.strokeRoundedVideoReplay, color: activeColor),
+              label: 'Reels',
+            ),
+            BottomNavigationBarItem(
+              icon: HugeIcon(
+                  icon: HugeIcons.strokeRoundedUser, color: inactiveColor),
+              activeIcon: HugeIcon(
+                  icon: HugeIcons.strokeRoundedUser, color: activeColor),
+              label: 'Profile',
+            ),
+          ],
+        ),
       ),
     );
   }

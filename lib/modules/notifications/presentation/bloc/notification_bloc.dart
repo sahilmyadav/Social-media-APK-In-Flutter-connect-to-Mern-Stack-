@@ -6,9 +6,16 @@ import '../../domain/entities/notification_entity.dart';
 
 // Events
 abstract class NotificationEvent {}
+
 class LoadNotifications extends NotificationEvent {}
+
 class RefreshNotifications extends NotificationEvent {}
-class MarkReadEvent extends NotificationEvent { final String id; MarkReadEvent(this.id); }
+
+class MarkReadEvent extends NotificationEvent {
+  final String id;
+  MarkReadEvent(this.id);
+}
+
 class FollowBackEvent extends NotificationEvent {
   final String userId;
   final String notificationId;
@@ -17,29 +24,35 @@ class FollowBackEvent extends NotificationEvent {
 
 // States
 abstract class NotificationState {}
+
 class NotificationInitial extends NotificationState {}
+
 class NotificationLoading extends NotificationState {}
+
 class NotificationLoaded extends NotificationState {
   final List<NotificationEntity> notifications;
   final int unreadCount;
   NotificationLoaded(this.notifications, {this.unreadCount = 0});
 }
-class NotificationError extends NotificationState { final String message; NotificationError(this.message); }
+
+class NotificationError extends NotificationState {
+  final String message;
+  NotificationError(this.message);
+}
 
 class NotificationBloc extends Bloc<NotificationEvent, NotificationState> {
   final NotificationRepository repository;
 
   // Keep track of locally followed IDs to prevent reverting on API refresh
-  final Set<String> _locallyFollowedNotificationIds = {};
 
   NotificationBloc(this.repository) : super(NotificationInitial()) {
-
     on<LoadNotifications>((event, emit) async {
       // 1. Load Cache First
       try {
         final cachedData = HiveHelper.getCachedNotifications();
         if (cachedData.isNotEmpty) {
-          final cachedList = cachedData.map((e) => NotificationEntity.fromJson(e)).toList();
+          final cachedList =
+              cachedData.map((e) => NotificationEntity.fromJson(e)).toList();
           emit(NotificationLoaded(cachedList));
         } else {
           emit(NotificationLoading());
@@ -54,8 +67,11 @@ class NotificationBloc extends Bloc<NotificationEvent, NotificationState> {
         final count = await repository.getUnreadCount();
 
         // MERGE LOGIC: If we locally followed someone, enforce true on the fresh list
+        final followedUsers = HiveHelper.getFollowedUsers().toSet();
+
         final mergedList = list.map((n) {
-          if (_locallyFollowedNotificationIds.contains(n.id)) {
+          if (followedUsers.contains(n.sender.id)) {
+            // Check sender ID, not notification ID
             final updatedSender = n.sender.copyWith(isFollowing: true);
             return n.copyWith(isFollowedBack: true, sender: updatedSender);
           }
@@ -76,8 +92,10 @@ class NotificationBloc extends Bloc<NotificationEvent, NotificationState> {
         final count = await repository.getUnreadCount();
 
         // MERGE LOGIC for Refresh as well
+        final followedUsers = HiveHelper.getFollowedUsers().toSet();
+
         final mergedList = list.map((n) {
-          if (_locallyFollowedNotificationIds.contains(n.id)) {
+          if (followedUsers.contains(n.sender.id)) {
             final updatedSender = n.sender.copyWith(isFollowing: true);
             return n.copyWith(isFollowedBack: true, sender: updatedSender);
           }
@@ -94,19 +112,21 @@ class NotificationBloc extends Bloc<NotificationEvent, NotificationState> {
       if (state is NotificationLoaded) {
         final currentState = state as NotificationLoaded;
 
-        // 1. Add to local memory set
-        _locallyFollowedNotificationIds.add(event.notificationId);
+        // 1. Add to local memory set & Hive
+        await HiveHelper.cacheFollowedUser(event.userId);
 
         // 2. Optimistic Update
         final updatedList = currentState.notifications.map((n) {
-          if (n.id == event.notificationId) {
+          if (n.sender.id == event.userId) {
+            // Update ALL notifications from this user
             final updatedSender = n.sender.copyWith(isFollowing: true);
             return n.copyWith(isFollowedBack: true, sender: updatedSender);
           }
           return n;
         }).toList();
 
-        emit(NotificationLoaded(updatedList, unreadCount: currentState.unreadCount));
+        emit(NotificationLoaded(updatedList,
+            unreadCount: currentState.unreadCount));
 
         // 3. Update Cache
         try {
@@ -124,16 +144,17 @@ class NotificationBloc extends Bloc<NotificationEvent, NotificationState> {
           }
 
           // If genuine error, Revert
-          _locallyFollowedNotificationIds.remove(event.notificationId); // Remove from memory
+          await HiveHelper.unfollowUser(event.userId);
 
           final revertedList = currentState.notifications.map((n) {
-            if (n.id == event.notificationId) {
+            if (n.sender.id == event.userId) {
               final revertedSender = n.sender.copyWith(isFollowing: false);
               return n.copyWith(isFollowedBack: false, sender: revertedSender);
             }
             return n;
           }).toList();
-          emit(NotificationLoaded(revertedList, unreadCount: currentState.unreadCount));
+          emit(NotificationLoaded(revertedList,
+              unreadCount: currentState.unreadCount));
         }
       }
     });
@@ -144,7 +165,8 @@ class NotificationBloc extends Bloc<NotificationEvent, NotificationState> {
         final updatedList = currentState.notifications.map((n) {
           return n.id == event.id ? n.copyWith(isRead: true) : n;
         }).toList();
-        final newCount = currentState.unreadCount > 0 ? currentState.unreadCount - 1 : 0;
+        final newCount =
+            currentState.unreadCount > 0 ? currentState.unreadCount - 1 : 0;
         emit(NotificationLoaded(updatedList, unreadCount: newCount));
         await repository.markAsRead(event.id);
       }

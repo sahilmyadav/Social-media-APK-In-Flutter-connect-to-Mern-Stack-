@@ -26,6 +26,10 @@ abstract class ProfileRepository {
   // --- NEW: Fetch Single Post Details ---
   Future<PostEntity> getPostDetails(String postId);
 
+  // --- NEW: Fetch Saved Content ---
+  Future<List<PostEntity>> getSavedPosts();
+  Future<List<ReelEntity>> getSavedReels();
+
   // Legacy
   Future<UserEntity> getUserProfile(String userId);
 }

@@ -208,6 +208,43 @@ class ProfileRepositoryImpl implements ProfileRepository {
   }
 
   @override
+  Future<List<PostEntity>> getSavedPosts() async {
+    try {
+      final response = await _apiClient.dio.get('/post/user-saved-posts');
+      if (response.data['data'] != null) {
+        final dynamic data = response.data['data'];
+        if (data is List) {
+          return data.map((json) => PostEntity.fromJson(json)).toList();
+        } else if (data is Map && data['posts'] != null) {
+          return (data['posts'] as List)
+              .map((json) => PostEntity.fromJson(json))
+              .toList();
+        }
+      }
+      return [];
+    } catch (e) {
+      debugPrint("❌ API ERROR (getSavedPosts): $e");
+      return [];
+    }
+  }
+
+  @override
+  Future<List<ReelEntity>> getSavedReels() async {
+    try {
+      final response = await _apiClient.dio.get('/reel/saved');
+      if (response.data['data'] != null &&
+          response.data['data']['reels'] != null) {
+        final List data = response.data['data']['reels'];
+        return data.map((json) => ReelEntity.fromJson(json)).toList();
+      }
+      return [];
+    } catch (e) {
+      debugPrint("❌ API ERROR (getSavedReels): $e");
+      return [];
+    }
+  }
+
+  @override
   Future<UserEntity> getUserProfile(String userId) =>
       getRemoteUserProfile(userId);
 }

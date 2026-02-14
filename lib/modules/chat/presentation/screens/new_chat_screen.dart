@@ -5,8 +5,9 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:hugeicons/hugeicons.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-import '../../../../../core/network/api_client.dart';
-import '../../../../../injection_container.dart';
+import '../../../../core/network/api_client.dart';
+import '../../../../core/utils/responsive.dart';
+import '../../../../injection_container.dart';
 import '../../../user/data/repositories/search_repository.dart';
 import '../../../user/presentation/bloc/search_bloc.dart';
 import '../../../user/domain/entities/user_entity.dart';
@@ -43,7 +44,6 @@ class _NewChatViewState extends State<NewChatView> {
   @override
   void initState() {
     super.initState();
-    // Auto-focus the search bar when opening "New Chat"
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _focusNode.requestFocus();
     });
@@ -71,7 +71,6 @@ class _NewChatViewState extends State<NewChatView> {
 
   Future<void> _createThreadAndNavigate(UserEntity user) async {
     try {
-      // Show loading
       showDialog(
         context: context,
         barrierDismissible: false,
@@ -81,56 +80,49 @@ class _NewChatViewState extends State<NewChatView> {
       final chatRepo = sl<ChatRepository>();
       final threadId = await chatRepo.createThread(user.id);
 
-      // Dismiss loading
-      if (mounted) Navigator.pop(context);
+      if (mounted) Navigator.pop(context); // Dismiss loading
 
-      // Navigate to ChatDetail
       if (mounted) {
-        // Need to pass the ChatBloc from the previous screen (ChatListScreen context)
-        // BUT we are in a new route. We should probably use DI or pass it if possible.
-        // For now, let's create a fresh ChatBloc or use the one from DI since ChatListScreen provided it locally.
-        // Actually, ChatListScreen created a BlocProvider. We can't access it here easily unless passed.
-        // BETTER: Use Dependency Injection for ChatBloc in ChatDetailScreen if it's not passed,
-        // OR rely on the fact that ChatDetailScreen typically expects one.
-
-        // Simpler: Just resolve a fresh block or use global if available.
-        // Given existing code structure, ChatDetailScreen takes a `chatBloc`.
-        // We will resolve a new one from SL since we are starting a fresh chat session.
-
+        // Use the global ChatBloc
+        final chatBloc = context.read<ChatBloc>();
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
             builder: (_) => ChatDetailScreen(
               threadId: threadId,
               user: user,
-              chatBloc: sl<ChatBloc>()
-                ..add(InitChat()), // Initialize fresh bloc
+              chatBloc: chatBloc,
             ),
           ),
         );
       }
     } catch (e) {
       if (mounted) Navigator.pop(context); // Dismiss loading
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Failed to start chat: $e")),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Failed to start chat: $e")),
+        );
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final backgroundColor = isDark ? Colors.black : Colors.white;
+    final bgColor = isDark ? Colors.black : Colors.white;
     final textColor = isDark ? Colors.white : Colors.black;
     final searchFillColor =
         isDark ? const Color(0xFF262626) : const Color(0xFFEFEFEF);
 
     return Scaffold(
-      backgroundColor: backgroundColor,
+      backgroundColor: bgColor,
       appBar: AppBar(
-        title: const Text("New Message",
-            style: TextStyle(fontWeight: FontWeight.bold)),
-        backgroundColor: backgroundColor,
+        title: Text("New Message",
+            style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: Responsive.sp(18),
+                color: textColor)),
+        backgroundColor: bgColor,
         elevation: 0,
         leading: IconButton(
           icon: Icon(Icons.arrow_back, color: textColor),
@@ -139,37 +131,37 @@ class _NewChatViewState extends State<NewChatView> {
       ),
       body: Column(
         children: [
-          // --- SEARCH BAR ---
+          // Search Bar
           Padding(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 0.0),
+            padding: Responsive.padSymmetric(horizontal: 16),
             child: Container(
-              height: 44,
+              height: Responsive.h(44),
               decoration: BoxDecoration(
                 color: searchFillColor,
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(Responsive.r(12)),
               ),
               child: TextField(
                 controller: _searchController,
                 focusNode: _focusNode,
-                style: TextStyle(color: textColor, fontSize: 16),
+                style: TextStyle(color: textColor, fontSize: Responsive.sp(16)),
                 onChanged: _onSearchChanged,
                 decoration: InputDecoration(
                   hintText: "Search...",
-                  hintStyle: TextStyle(color: Colors.grey[500], fontSize: 16),
+                  hintStyle: TextStyle(
+                      color: Colors.grey[500], fontSize: Responsive.sp(16)),
                   prefixIcon: Padding(
-                    padding: const EdgeInsets.all(10.0),
+                    padding: Responsive.padAll(10),
                     child: HugeIcon(
                         icon: HugeIcons.strokeRoundedSearch01,
                         color: Colors.grey[500]!,
-                        size: 20),
+                        size: Responsive.sp(20)),
                   ),
                   border: InputBorder.none,
-                  contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                  contentPadding: Responsive.padSymmetric(vertical: 10),
                   suffixIcon: _isSearching
                       ? IconButton(
-                          icon: const Icon(Icons.cancel,
-                              color: Colors.grey, size: 20),
+                          icon: Icon(Icons.cancel,
+                              color: Colors.grey, size: Responsive.sp(20)),
                           onPressed: () {
                             _searchController.clear();
                             _onSearchChanged("");
@@ -180,40 +172,35 @@ class _NewChatViewState extends State<NewChatView> {
               ),
             ),
           ),
-          const SizedBox(height: 10),
+          SizedBox(height: Responsive.h(10)),
 
-          // --- CONTENT AREA ---
+          // Content Area
           Expanded(
             child: BlocBuilder<SearchBloc, SearchState>(
               builder: (context, state) {
-                // 1. SUGGESTED / INITIAL
                 if (state is SearchInitial ||
                     (state is ExploreLoaded && !_isSearching)) {
                   return _buildSuggestedLabel();
                 }
-
-                // 2. LOADING
                 if (state is SearchLoading) {
                   return const Center(child: CircularProgressIndicator());
                 }
-
-                // 3. SEARCH RESULTS (USERS)
                 if (state is SearchResultsLoaded) {
                   if (state.users.isEmpty) {
                     return Center(
                         child: Text("No users found",
-                            style: TextStyle(color: Colors.grey)));
+                            style: TextStyle(
+                                color: Colors.grey,
+                                fontSize: Responsive.sp(14))));
                   }
                   return _buildUserList(state.users, textColor, isDark);
                 }
-
-                // 4. ERROR
                 if (state is SearchError) {
                   return Center(
                       child: Text(state.message,
-                          style: const TextStyle(color: Colors.red)));
+                          style: TextStyle(
+                              color: Colors.red, fontSize: Responsive.sp(14))));
                 }
-
                 return const SizedBox();
               },
             ),
@@ -226,41 +213,43 @@ class _NewChatViewState extends State<NewChatView> {
   Widget _buildSuggestedLabel() {
     return Center(
       child: Text("Search for people to chat with",
-          style: TextStyle(color: Colors.grey)),
+          style: TextStyle(color: Colors.grey, fontSize: Responsive.sp(14))),
     );
   }
 
   Widget _buildUserList(List<UserEntity> users, Color textColor, bool isDark) {
     return ListView.builder(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      padding: Responsive.padSymmetric(vertical: 8),
       itemCount: users.length,
       itemBuilder: (context, index) {
         final user = users[index];
         final avatarUrl = user.profilePicture;
 
         return ListTile(
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+          contentPadding: Responsive.padSymmetric(horizontal: 16, vertical: 6),
           leading: CircleAvatar(
-            radius: 26,
+            radius: Responsive.r(26),
             backgroundColor: isDark ? Colors.grey[800] : Colors.grey[200],
-            backgroundImage:
-                (avatarUrl != null && avatarUrl.isNotEmpty) // Simplified helper
-                    ? CachedNetworkImageProvider("https://clikkme.in$avatarUrl")
-                    : null,
+            backgroundImage: (avatarUrl != null && avatarUrl.isNotEmpty)
+                ? CachedNetworkImageProvider("https://clikkme.in$avatarUrl")
+                : null,
             child: (avatarUrl == null || avatarUrl.isEmpty)
                 ? Icon(Icons.person,
-                    color: isDark ? Colors.grey[500] : Colors.grey[400])
+                    color: isDark ? Colors.grey[500] : Colors.grey[400],
+                    size: Responsive.sp(24))
                 : null,
           ),
           title: Text(
             user.username,
             style: GoogleFonts.inter(
-                fontWeight: FontWeight.w600, fontSize: 16, color: textColor),
+                fontWeight: FontWeight.w600,
+                fontSize: Responsive.sp(16),
+                color: textColor),
           ),
           subtitle: Text(
             user.firstName,
-            style: GoogleFonts.inter(color: Colors.grey, fontSize: 14),
+            style: GoogleFonts.inter(
+                color: Colors.grey, fontSize: Responsive.sp(14)),
           ),
           onTap: () => _createThreadAndNavigate(user),
         );

@@ -41,6 +41,9 @@ import 'modules/call/presentation/bloc/call_bloc.dart'; // Add this
 import 'modules/story/data/repositories/story_repository.dart';
 import 'modules/story/presentation/bloc/story_bloc.dart';
 
+import 'modules/live/data/repositories/live_repository.dart';
+import 'modules/live/presentation/bloc/live_bloc.dart';
+
 final sl = GetIt.instance;
 
 Future<void> init() async {
@@ -54,7 +57,8 @@ Future<void> init() async {
   sl.registerFactory(() => AuthBloc(authRepository: sl()));
 
   // --- User/Profile ---
-  sl.registerLazySingleton<ProfileRepository>(() => ProfileRepositoryImpl(sl()));
+  sl.registerLazySingleton<ProfileRepository>(
+      () => ProfileRepositoryImpl(sl()));
   sl.registerFactory(() => ProfileBloc(sl()));
 
   sl.registerLazySingleton(() => SearchRepository(sl()));
@@ -74,7 +78,7 @@ Future<void> init() async {
 
   // --- Chat (Singleton Repository to keep Socket alive) ---
   sl.registerLazySingleton(() => ChatRepository(sl()));
-  sl.registerFactory(() => ChatBloc(sl()));
+  sl.registerLazySingleton(() => ChatBloc(sl()));
 
   // --- Notifications ---
   sl.registerLazySingleton(() => NotificationRepository(sl()));
@@ -85,5 +89,7 @@ Future<void> init() async {
   sl.registerLazySingleton(() => StoryRepository(sl()));
   sl.registerFactory(() => StoryBloc(sl()));
 
-
+  // --- Live ---
+  sl.registerLazySingleton(() => LiveRepository(sl()));
+  sl.registerFactory(() => LiveBloc(sl()));
 }

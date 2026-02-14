@@ -12,6 +12,7 @@ import '../../../notifications/presentation/screens/notification_screen.dart';
 import '../../../chat/presentation/screens/chat_list_screen.dart';
 import '../../../story/presentation/bloc/story_bloc.dart';
 import '../../../story/presentation/widgets/story_bubbles_list.dart';
+import '../../../live/presentation/screens/live_feed_screen.dart';
 import '../../../../modules/user/domain/entities/user_entity.dart';
 import '../bloc/feed_bloc.dart';
 import '../widgets/post_card.dart';
@@ -41,7 +42,8 @@ class _FeedScreenState extends State<FeedScreen> {
         BlocProvider(create: (_) => sl<FeedBloc>()..add(LoadFeed())),
         BlocProvider(create: (_) => sl<StoryBloc>()..add(FetchStories())),
         BlocProvider(
-          create: (_) => NotificationBloc(sl<NotificationRepository>())..add(LoadNotifications()),
+          create: (_) => NotificationBloc(sl<NotificationRepository>())
+            ..add(LoadNotifications()),
         ),
       ],
       child: Scaffold(
@@ -61,6 +63,20 @@ class _FeedScreenState extends State<FeedScreen> {
             ),
           ),
           actions: [
+            // 0. LIVE STREAM ICON
+            IconButton(
+              icon: HugeIcon(
+                  icon: HugeIcons.strokeRoundedVideo01,
+                  color: iconColor,
+                  size: 28),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const LiveFeedScreen()),
+                );
+              },
+            ),
+
             // 1. NOTIFICATION ICON (Heart Style)
             BlocBuilder<NotificationBloc, NotificationState>(
               builder: (context, state) {
@@ -75,15 +91,17 @@ class _FeedScreenState extends State<FeedScreen> {
                       icon: HugeIcon(
                           icon: HugeIcons.strokeRoundedFavourite,
                           color: iconColor,
-                          size: 28
-                      ),
+                          size: 28),
                       onPressed: () {
                         Navigator.push(
                           context,
-                          MaterialPageRoute(builder: (_) => const NotificationScreen()),
+                          MaterialPageRoute(
+                              builder: (_) => const NotificationScreen()),
                         ).then((_) {
                           if (context.mounted) {
-                            context.read<NotificationBloc>().add(LoadNotifications());
+                            context
+                                .read<NotificationBloc>()
+                                .add(LoadNotifications());
                           }
                         });
                       },
@@ -124,10 +142,10 @@ class _FeedScreenState extends State<FeedScreen> {
               icon: HugeIcon(
                   icon: HugeIcons.strokeRoundedMessenger,
                   color: iconColor,
-                  size: 28
-              ),
+                  size: 28),
               onPressed: () {
-                Navigator.push(context, MaterialPageRoute(builder: (_) => const ChatListScreen()));
+                Navigator.push(context,
+                    MaterialPageRoute(builder: (_) => const ChatListScreen()));
               },
             ),
           ],
@@ -136,6 +154,11 @@ class _FeedScreenState extends State<FeedScreen> {
           listener: (context, state) {
             if (state is FeedError) {
               SnackbarUtils.showError(context, state.message);
+            } else if (state is FeedLoaded && state.currentUser != null) {
+              // Fetch my stories once we know who I am
+              context
+                  .read<StoryBloc>()
+                  .add(FetchMyStories(state.currentUser!.id));
             }
           },
           builder: (context, state) {
@@ -156,9 +179,12 @@ class _FeedScreenState extends State<FeedScreen> {
     }
 
     // 2. Loaded State
-    if (state is FeedLoaded || (state is FeedError && state.currentPosts.isNotEmpty)) {
-      final posts = state is FeedLoaded ? state.posts : (state as FeedError).currentPosts;
-      final suggestions = state is FeedLoaded ? state.suggestions : <UserEntity>[];
+    if (state is FeedLoaded ||
+        (state is FeedError && state.currentPosts.isNotEmpty)) {
+      final posts =
+          state is FeedLoaded ? state.posts : (state as FeedError).currentPosts;
+      final suggestions =
+          state is FeedLoaded ? state.suggestions : <UserEntity>[];
       final currentUser = state is FeedLoaded ? state.currentUser : null;
 
       return RefreshIndicator(
@@ -167,6 +193,9 @@ class _FeedScreenState extends State<FeedScreen> {
         onRefresh: () async {
           context.read<FeedBloc>().add(RefreshFeed());
           context.read<StoryBloc>().add(FetchStories());
+          if (currentUser != null) {
+            context.read<StoryBloc>().add(FetchMyStories(currentUser.id));
+          }
           context.read<NotificationBloc>().add(LoadNotifications());
           await Future.delayed(const Duration(seconds: 1));
         },
@@ -174,7 +203,6 @@ class _FeedScreenState extends State<FeedScreen> {
           physics: const AlwaysScrollableScrollPhysics(),
           itemCount: posts.length + 2,
           itemBuilder: (context, index) {
-
             // INDEX 0: Stories
             if (index == 0) {
               return Column(
@@ -217,9 +245,14 @@ class _FeedScreenState extends State<FeedScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            HugeIcon(icon: HugeIcons.strokeRoundedWifi01, size: 50, color: Colors.grey),
+            HugeIcon(
+                icon: HugeIcons.strokeRoundedWifi01,
+                size: 50,
+                color: Colors.grey),
             const SizedBox(height: 10),
-            Text(state.message, style: GoogleFonts.inter(color: Colors.grey), textAlign: TextAlign.center),
+            Text(state.message,
+                style: GoogleFonts.inter(color: Colors.grey),
+                textAlign: TextAlign.center),
             TextButton(
               onPressed: () => context.read<FeedBloc>().add(LoadFeed()),
               child: const Text("Retry"),
@@ -238,13 +271,15 @@ class _FeedScreenState extends State<FeedScreen> {
         child: Text(
           "Welcome to ClickMe!\nFollow people to see posts.",
           textAlign: TextAlign.center,
-          style: GoogleFonts.inter(color: isDark ? Colors.grey[400] : Colors.grey[600]),
+          style: GoogleFonts.inter(
+              color: isDark ? Colors.grey[400] : Colors.grey[600]),
         ),
       ),
     );
   }
 
-  Widget _buildFollowSuggestions(BuildContext context, List<UserEntity> users, bool isDark) {
+  Widget _buildFollowSuggestions(
+      BuildContext context, List<UserEntity> users, bool isDark) {
     final bgColor = isDark ? const Color(0xFF1E1E1E) : Colors.white;
     final borderColor = isDark ? Colors.grey[800]! : Colors.grey[300]!;
     final textColor = isDark ? Colors.white : Colors.black;
@@ -261,8 +296,16 @@ class _FeedScreenState extends State<FeedScreen> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text("Suggested for you", style: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 15, color: textColor)),
-                Text("See all", style: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 13, color: Colors.blue)),
+                Text("Suggested for you",
+                    style: GoogleFonts.inter(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 15,
+                        color: textColor)),
+                Text("See all",
+                    style: GoogleFonts.inter(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                        color: Colors.blue)),
               ],
             ),
           ),
@@ -296,7 +339,8 @@ class _FeedScreenState extends State<FeedScreen> {
                                 ? CachedNetworkImageProvider(dpUrl)
                                 : null,
                             child: (dpUrl.isEmpty)
-                                ? Icon(Icons.person, size: 44, color: Colors.grey[500])
+                                ? Icon(Icons.person,
+                                    size: 44, color: Colors.grey[500])
                                 : null,
                           ),
                         ],
@@ -306,19 +350,19 @@ class _FeedScreenState extends State<FeedScreen> {
                         padding: const EdgeInsets.symmetric(horizontal: 8.0),
                         child: Column(
                           children: [
-                            Text(
-                                user.username,
-                                style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 14, color: textColor),
+                            Text(user.username,
+                                style: GoogleFonts.inter(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 14,
+                                    color: textColor),
                                 maxLines: 1,
-                                overflow: TextOverflow.ellipsis
-                            ),
+                                overflow: TextOverflow.ellipsis),
                             const SizedBox(height: 4),
-                            Text(
-                                user.firstName ?? "Suggested",
-                                style: GoogleFonts.inter(fontSize: 12, color: Colors.grey),
+                            Text(user.firstName ?? "Suggested",
+                                style: GoogleFonts.inter(
+                                    fontSize: 12, color: Colors.grey),
                                 maxLines: 1,
-                                overflow: TextOverflow.ellipsis
-                            ),
+                                overflow: TextOverflow.ellipsis),
                           ],
                         ),
                       ),
@@ -331,23 +375,26 @@ class _FeedScreenState extends State<FeedScreen> {
                           child: ElevatedButton(
                             onPressed: () {
                               if (!isFollowing) {
-                                context.read<FeedBloc>().add(FollowUserFromSuggestions(user.id));
+                                context
+                                    .read<FeedBloc>()
+                                    .add(FollowUserFromSuggestions(user.id));
                               }
                             },
                             style: ElevatedButton.styleFrom(
-                                backgroundColor: isFollowing ? Colors.grey[300] : Colors.blue,
+                                backgroundColor: isFollowing
+                                    ? Colors.grey[300]
+                                    : Colors.blue,
                                 elevation: 0,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                padding: EdgeInsets.zero
-                            ),
-                            child: Text(
-                                isFollowing ? "Following" : "Follow",
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8)),
+                                padding: EdgeInsets.zero),
+                            child: Text(isFollowing ? "Following" : "Follow",
                                 style: GoogleFonts.inter(
-                                    color: isFollowing ? Colors.black : Colors.white,
+                                    color: isFollowing
+                                        ? Colors.black
+                                        : Colors.white,
                                     fontWeight: FontWeight.w600,
-                                    fontSize: 13
-                                )
-                            ),
+                                    fontSize: 13)),
                           ),
                         ),
                       )
@@ -375,14 +422,28 @@ class _FeedScreenState extends State<FeedScreen> {
             padding: const EdgeInsets.all(10.0),
             child: Row(
               children: [
-                Container(width: 40, height: 40, decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle)),
+                Container(
+                    width: 40,
+                    height: 40,
+                    decoration: const BoxDecoration(
+                        color: Colors.white, shape: BoxShape.circle)),
                 const SizedBox(width: 12),
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(width: 120, height: 12, decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(4))),
+                    Container(
+                        width: 120,
+                        height: 12,
+                        decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(4))),
                     const SizedBox(height: 8),
-                    Container(width: 80, height: 10, decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(4))),
+                    Container(
+                        width: 80,
+                        height: 10,
+                        decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(4))),
                   ],
                 )
               ],

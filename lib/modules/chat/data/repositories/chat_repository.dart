@@ -1,9 +1,14 @@
 import 'dart:async';
+import 'dart:io';
+import 'package:dio/dio.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:flutter/foundation.dart'; // For debugPrint
+import 'package:http_parser/http_parser.dart'; // For MediaType
 import '../../../../core/network/api_client.dart';
 import '../../domain/entities/chat_entity.dart';
 import '../../../call/domain/entities/call_entity.dart';
+import '../../../../core/local_storage/hive_helper.dart';
 
 class ChatRepository {
   final ApiClient _apiClient;
@@ -16,6 +21,14 @@ class ChatRepository {
 
   final _callController = StreamController<CallEntity>.broadcast();
   Stream<CallEntity> get callStream => _callController.stream;
+
+  final _userStatusController =
+      StreamController<Map<String, dynamic>>.broadcast();
+  Stream<Map<String, dynamic>> get userStatusStream =>
+      _userStatusController.stream;
+
+  final _typingController = StreamController<Map<String, dynamic>>.broadcast();
+  Stream<Map<String, dynamic>> get typingStream => _typingController.stream;
 
   ChatRepository(this._apiClient);
 
@@ -35,6 +48,24 @@ class ChatRepository {
     _socket.onConnect((_) {
       print('Socket Connected');
       _socket.emit('authenticate', {'token': token});
+    });
+
+    _socket.on('user_status', (data) {
+      if (!_userStatusController.isClosed) {
+        _userStatusController.add(Map<String, dynamic>.from(data));
+      }
+    });
+
+    _socket.on('typing', (data) {
+      if (!_typingController.isClosed) {
+        _typingController.add(Map<String, dynamic>.from(data));
+      }
+    });
+
+    _socket.on('stop_typing', (data) {
+      if (!_typingController.isClosed) {
+        _typingController.add(Map<String, dynamic>.from(data));
+      }
     });
 
     // 1. New Message Event
@@ -96,7 +127,6 @@ class ChatRepository {
   // --- Chat APIs ---
 
   /// GET /chat/threads
-  /// API spec says data is array, actual API wraps in data.threads - handle both.
   Future<List<ThreadEntity>> getThreads() async {
     final currentUserId = await _storage.read(key: 'userId') ?? '';
     final response = await _apiClient.dio.get('/chat/threads');
@@ -104,14 +134,16 @@ class ChatRepository {
 
     List threadsList;
     if (responseData is List) {
-      // API spec format: data is directly an array
       threadsList = responseData;
     } else if (responseData is Map) {
-      // Actual API format: data.threads is the array
       threadsList = responseData['threads'] ?? [];
     } else {
       threadsList = [];
     }
+
+    // Cache the raw thread data for instant loading next time
+    await HiveHelper.cacheThreads(
+        threadsList.map((e) => Map<String, dynamic>.from(e as Map)).toList());
 
     return threadsList
         .map((e) => ThreadEntity.fromJson(
@@ -119,8 +151,18 @@ class ChatRepository {
         .toList();
   }
 
+  /// Get cached threads for instant display while API loads
+  Future<List<ThreadEntity>> getCachedThreads() async {
+    final currentUserId = await _storage.read(key: 'userId') ?? '';
+    final cached = HiveHelper.getCachedThreads();
+    if (cached.isEmpty) return [];
+    return cached
+        .map((e) => ThreadEntity.fromJson(
+            Map<String, dynamic>.from(e as Map), currentUserId))
+        .toList();
+  }
+
   /// GET /chat/messages/:threadId
-  /// Response: { data: { messages: [...], total, page, hasMore } }
   Future<List<MessageEntity>> getMessages(String threadId) async {
     final currentUserId = await _storage.read(key: 'userId') ?? '';
     final response = await _apiClient.dio.get('/chat/messages/$threadId');
@@ -135,29 +177,121 @@ class ChatRepository {
       messagesList = [];
     }
 
+    // Cache messages for this thread
+    await HiveHelper.cacheMessages(threadId,
+        messagesList.map((e) => Map<String, dynamic>.from(e as Map)).toList());
+
     return messagesList
         .map((e) => MessageEntity.fromJson(
             Map<String, dynamic>.from(e as Map), currentUserId))
         .toList();
   }
 
-  /// POST /chat/message/send/:threadId
-  /// Request: { "content": "..." }
-  /// Response (201): { data: { _id, thread_id, sender_id: {...}, content, media, status, createdAt } }
-  Future<MessageEntity> sendMessage(String threadId, String content) async {
+  /// Get cached messages for instant display
+  Future<List<MessageEntity>> getCachedMessages(String threadId) async {
     final currentUserId = await _storage.read(key: 'userId') ?? '';
-    final response = await _apiClient.dio
-        .post('/chat/message/send/$threadId', data: {"content": content});
+    final cached = HiveHelper.getCachedMessages(threadId);
+    if (cached.isEmpty) return [];
+    return cached
+        .map((e) => MessageEntity.fromJson(
+            Map<String, dynamic>.from(e as Map), currentUserId))
+        .toList();
+  }
+
+  /// POST /chat/upload
+  Future<String> uploadMedia(File file) async {
+    String fileName = file.path.split('/').last;
+    FormData formData = FormData.fromMap({
+      "file": await MultipartFile.fromFile(file.path, filename: fileName),
+    });
+
+    final response = await _apiClient.dio.post('/chat/upload', data: formData);
+    return response.data['data']['url'];
+  }
+
+  /// POST /chat/message/send/:threadId
+  /// Supports both JSON (text only) and FormData (media).
+  Future<MessageEntity> sendMessage(String threadId, String content,
+      {String type = 'text',
+      File? mediaFile,
+      File? thumbnailFile,
+      String?
+          mediaUrl, // Keep for backward compatibility or if URL is already available
+      String? thumbnailUrl,
+      int? duration}) async {
+    final currentUserId = await _storage.read(key: 'userId') ?? '';
+
+    Response response;
+
+    if (mediaFile != null || thumbnailFile != null) {
+      // Use FormData for file uploads
+      final Map<String, dynamic> map = {
+        "text": content,
+        "type": type,
+        if (duration != null) "duration": duration,
+        if (mediaUrl != null) "mediaUrl": mediaUrl,
+      };
+
+      if (mediaFile != null) {
+        if (await mediaFile.exists()) {
+          String fileName = mediaFile.path.split('/').last;
+
+          MediaType? contentType;
+          if (type == 'audio' || type == 'voice') {
+            contentType = MediaType('audio', 'm4a');
+          } else if (type == 'image') {
+            contentType = MediaType('image', 'jpeg');
+          } else if (type == 'video') {
+            contentType = MediaType('video', 'mp4');
+          }
+
+          map["media"] = await MultipartFile.fromFile(mediaFile.path,
+              filename: fileName, contentType: contentType);
+        } else {
+          debugPrint("❌ Error: Media file does not exist at ${mediaFile.path}");
+          throw Exception("Media file not found");
+        }
+      }
+
+      if (thumbnailFile != null) {
+        String thumbName = thumbnailFile.path.split('/').last;
+        map["thumbnail"] = await MultipartFile.fromFile(thumbnailFile.path,
+            filename: thumbName);
+      }
+
+      final formData = FormData.fromMap(map);
+
+      response = await _apiClient.dio
+          .post('/chat/message/send/$threadId', data: formData);
+    } else {
+      debugPrint("🚀 Sending Text Message Payload: ${{
+        "text": content,
+        "type": type,
+        if (mediaUrl != null) "mediaUrl": mediaUrl,
+        if (thumbnailUrl != null) "thumbnailUrl": thumbnailUrl,
+        if (duration != null) "duration": duration
+      }}");
+
+      response =
+          await _apiClient.dio.post('/chat/message/send/$threadId', data: {
+        "text": content,
+        "type": type,
+        if (mediaUrl != null) "mediaUrl": mediaUrl,
+        if (thumbnailUrl != null) "thumbnailUrl": thumbnailUrl,
+        if (duration != null) "duration": duration
+      });
+      debugPrint("✅ Message Text Sent Response: ${response.data}");
+    }
+
+    // debugPrint("✅ Message Sent Response: ${response.data}"); // Removed duplicate log
     final messageData = Map<String, dynamic>.from(response.data['data'] as Map);
     return MessageEntity.fromJson(messageData, currentUserId);
   }
 
   /// POST /chat/thread/:receiverId
-  /// Response: { data: { _id, participants: [...], createdAt } }
   Future<String> createThread(String receiverId) async {
     final response = await _apiClient.dio.post('/chat/thread/$receiverId');
     final data = response.data['data'];
-    // The response data contains _id for the thread
     return data['_id'] ?? data['id'] ?? '';
   }
 
@@ -174,7 +308,7 @@ class ChatRepository {
   /// PUT /chat/message/edit/:messageId
   Future<void> editMessage(String messageId, String content) async {
     await _apiClient.dio
-        .put('/chat/message/edit/$messageId', data: {"content": content});
+        .put('/chat/message/edit/$messageId', data: {"text": content});
   }
 
   /// PUT /chat/messages/seen/:threadId
@@ -190,13 +324,30 @@ class ChatRepository {
   }
 
   /// POST /chat/call/end/:callId
-  Future<void> endCall(String callId) async {
-    await _apiClient.dio.post('/chat/call/end/$callId');
+  Future<void> endCall(String callId, {int duration = 0}) async {
+    await _apiClient.dio.post('/chat/call/end/$callId', data: {
+      "duration": duration,
+    });
+  }
+
+  /// POST /chat/call/accept/:callId
+  Future<void> acceptCall(String callId) async {
+    await _apiClient.dio.post('/chat/call/accept/$callId');
+  }
+
+  void sendTyping(String threadId, String receiverId) {
+    _socket.emit('typing', {'threadId': threadId, 'receiverId': receiverId});
+  }
+
+  void sendStopTyping(String threadId, String receiverId) {
+    _socket
+        .emit('stop_typing', {'threadId': threadId, 'receiverId': receiverId});
   }
 
   void dispose() {
     _socket.disconnect();
     _messageController.close();
     _callController.close();
+    _typingController.close();
   }
 }

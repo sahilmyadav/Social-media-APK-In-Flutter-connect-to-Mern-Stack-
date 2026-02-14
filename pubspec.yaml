@@ -59,6 +59,10 @@ dependencies:
 
   agora_rtc_engine: ^6.3.0     # The video streaming engine
   wakelock_plus: ^1.1.0        # Keeps screen on during live
+  record: ^6.2.0
+  chewie: ^1.13.0
+  geolocator: ^14.0.2
+  url_launcher: ^6.3.2
 
 dev_dependencies:
   flutter_test:

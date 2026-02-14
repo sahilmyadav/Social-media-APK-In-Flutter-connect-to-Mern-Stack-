@@ -23,7 +23,7 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late TabController _tabController;
   final ScrollController _scrollController = ScrollController();
 
@@ -240,10 +240,6 @@ class _ProfileScreenState extends State<ProfileScreen>
           if (state is ProfileLoading) {
             return const ProfileSkeleton();
           } else if (state is ProfileError) {
-            // ORIGINAL CODE (Commented out)
-            // return Center(child: Text(state.message, style: TextStyle(color: textColor)));
-
-            // NEW CODE: Retry Button
             return Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -265,8 +261,17 @@ class _ProfileScreenState extends State<ProfileScreen>
             );
           } else if (state is ProfileLoaded) {
             final user = state.user;
+            final isMe = state.isMe;
             final posts = state.posts;
             final reels = state.reels;
+            final savedPosts = state.savedPosts;
+            final savedReels = state.savedReels;
+
+            // Update Tab Controller length if needed
+            if (_tabController.length != (isMe ? 3 : 2)) {
+              _tabController.dispose();
+              _tabController = TabController(length: isMe ? 3 : 2, vsync: this);
+            }
 
             return RefreshIndicator(
               onRefresh: _onRefresh,
@@ -275,97 +280,158 @@ class _ProfileScreenState extends State<ProfileScreen>
                 controller: _scrollController,
                 headerSliverBuilder: (context, innerBoxIsScrolled) {
                   return [
-                    SliverAppBar(
-                      backgroundColor: backgroundColor,
-                      expandedHeight: 200,
-                      pinned: true,
-                      elevation: 0,
-                      leading: IconButton(
-                        icon: Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                              color: Colors.black.withOpacity(0.3),
-                              shape: BoxShape.circle),
-                          child: const Icon(Icons.arrow_back,
-                              color: Colors.white, size: 18),
-                        ),
-                        onPressed: () => Navigator.pop(context),
-                      ),
-                      flexibleSpace: FlexibleSpaceBar(
-                        background: Stack(
-                          clipBehavior: Clip.none,
-                          alignment: Alignment.center,
-                          children: [
-                            Positioned(
-                              top: 0,
-                              left: 0,
-                              right: 0,
-                              bottom: 60,
+                    SliverToBoxAdapter(
+                      child: Stack(
+                        clipBehavior: Clip.none,
+                        alignment: Alignment.center,
+                        children: [
+                          // 1. Solid Background (White/Black)
+                          Container(
+                            height: 200,
+                            width: double.infinity,
+                            color: isDark ? Colors.black : Colors.white,
+                          ),
+                          // Back Button
+                          Positioned(
+                            top: 40,
+                            left: 16,
+                            child: GestureDetector(
+                              onTap: () => Navigator.pop(context),
                               child: Container(
+                                padding: const EdgeInsets.all(8),
                                 decoration: BoxDecoration(
-                                    color: Colors.grey[300],
-                                    image: (user.coverPhoto != null ||
-                                            user.profilePicture != null)
-                                        ? DecorationImage(
-                                            image: CachedNetworkImageProvider(
-                                                _fixUrl(user.coverPhoto ??
-                                                    user.profilePicture)),
-                                            fit: BoxFit.cover,
-                                            colorFilter: ColorFilter.mode(
-                                                Colors.black.withOpacity(0.3),
-                                                BlendMode.darken))
-                                        : null),
+                                    color: isDark
+                                        ? Colors.white.withOpacity(0.2)
+                                        : Colors.black.withOpacity(0.05),
+                                    shape: BoxShape.circle),
+                                child: Icon(Icons.arrow_back,
+                                    color: isDark ? Colors.white : Colors.black,
+                                    size: 20),
                               ),
                             ),
+                          ),
+                          // Settings Button (if Me)
+                          if (isMe)
                             Positioned(
-                              bottom: 0,
-                              child: Container(
-                                padding: const EdgeInsets.all(4),
-                                decoration: BoxDecoration(
-                                    color: backgroundColor,
-                                    shape: BoxShape.circle),
-                                child: CircleAvatar(
-                                  radius: 55,
-                                  backgroundColor: Colors.grey[200],
-                                  backgroundImage: (user.profilePicture != null)
-                                      ? CachedNetworkImageProvider(
-                                          _fixUrl(user.profilePicture))
-                                      : null,
-                                  child: user.profilePicture == null
-                                      ? const Icon(Icons.person,
-                                          size: 50, color: Colors.grey)
-                                      : null,
+                              top: 40,
+                              right: 16,
+                              child: GestureDetector(
+                                onTap: () {
+                                  Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                          builder: (_) =>
+                                              const SettingsScreen()));
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                      color: isDark
+                                          ? Colors.white.withOpacity(0.2)
+                                          : Colors.black.withOpacity(0.05),
+                                      shape: BoxShape.circle),
+                                  child: Icon(Icons.settings,
+                                      color:
+                                          isDark ? Colors.white : Colors.black,
+                                      size: 20),
                                 ),
                               ),
                             ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    SliverToBoxAdapter(
-                      child: Column(
-                        children: [
-                          const SizedBox(height: 10),
-                          Text("${user.firstName} ${user.lastName}".trim(),
-                              style: GoogleFonts.inter(
-                                  fontWeight: FontWeight.w800,
-                                  fontSize: 22,
-                                  color: textColor)),
-                          Text("@${user.username}",
-                              style: GoogleFonts.inter(
-                                  fontWeight: FontWeight.w500,
-                                  fontSize: 14,
-                                  color: Colors.grey)),
-                          const SizedBox(height: 20),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 24),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                if (user.isBlocked)
-                                  Expanded(
-                                      child: SizedBox(
-                                          height: 40,
+
+                          // 2. Profile Info & Stats Card
+                          Column(
+                            children: [
+                              const SizedBox(height: 140), // Push down
+                              // Avatar
+                              Stack(
+                                alignment: Alignment.bottomRight,
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(4),
+                                    decoration: BoxDecoration(
+                                        color: backgroundColor,
+                                        shape: BoxShape.circle),
+                                    child: CircleAvatar(
+                                      radius: 50,
+                                      backgroundColor: Colors.grey[200],
+                                      backgroundImage:
+                                          (user.profilePicture != null)
+                                              ? CachedNetworkImageProvider(
+                                                  _fixUrl(user.profilePicture))
+                                              : null,
+                                      child: user.profilePicture == null
+                                          ? const Icon(Icons.person,
+                                              size: 50, color: Colors.grey)
+                                          : null,
+                                    ),
+                                  ),
+                                  if (isMe)
+                                    Container(
+                                      padding: const EdgeInsets.all(6),
+                                      decoration: const BoxDecoration(
+                                          color: Color(0xFF6C63FF),
+                                          shape: BoxShape.circle),
+                                      child: const Icon(Icons.camera_alt,
+                                          color: Colors.white, size: 16),
+                                    ),
+                                ],
+                              ),
+                              const SizedBox(height: 10),
+                              Text("${user.firstName} ${user.lastName}".trim(),
+                                  style: GoogleFonts.inter(
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 22,
+                                      color: textColor)),
+                              Text("@${user.username}",
+                                  style: GoogleFonts.inter(
+                                      fontWeight: FontWeight.w500,
+                                      fontSize: 14,
+                                      color: Colors.grey)),
+
+                              const SizedBox(height: 16),
+
+                              // Buttons (Edit Profile or Follow/Message)
+                              Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 24),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    if (isMe) ...[
+                                      Expanded(
+                                        child: ElevatedButton.icon(
+                                          onPressed: () {
+                                            // Navigate to Edit Profile
+                                          },
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor:
+                                                const Color(0xFF6C63FF),
+                                            foregroundColor: Colors.white,
+                                            elevation: 0,
+                                          ),
+                                          icon:
+                                              const Icon(Icons.edit, size: 16),
+                                          label: const Text("Edit Profile"),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: OutlinedButton.icon(
+                                          onPressed: () {
+                                            // Navigate to Edit Bio
+                                          },
+                                          style: OutlinedButton.styleFrom(
+                                              side: BorderSide(
+                                                  color: Colors.grey
+                                                      .withOpacity(0.3)),
+                                              foregroundColor: textColor),
+                                          icon: const Icon(Icons.edit_note,
+                                              size: 16),
+                                          label: const Text("Edit Bio"),
+                                        ),
+                                      ),
+                                    ] else if (user.isBlocked) ...[
+                                      Expanded(
                                           child: ElevatedButton(
                                               onPressed: () => context
                                                   .read<ProfileBloc>()
@@ -374,252 +440,285 @@ class _ProfileScreenState extends State<ProfileScreen>
                                               style: ElevatedButton.styleFrom(
                                                   backgroundColor:
                                                       Colors.redAccent),
-                                              child: const Text("Unblock"))))
-                                else ...[
-                                  Expanded(
-                                      child: SizedBox(
-                                          height: 40,
+                                              child: const Text("Unblock")))
+                                    ] else ...[
+                                      Expanded(
                                           child: ElevatedButton(
-                                            onPressed: () => context
-                                                .read<ProfileBloc>()
-                                                .add(
-                                                    ToggleFollowEvent(user.id)),
-                                            style: ElevatedButton.styleFrom(
-                                                backgroundColor: user
-                                                        .isFollowing
-                                                    ? (isDark
-                                                        ? Colors.grey[900]
-                                                        : Colors.white)
-                                                    : const Color(0xFF6C63FF),
-                                                side: user.isFollowing
-                                                    ? BorderSide(
-                                                        color: Colors
-                                                            .grey.shade300)
-                                                    : BorderSide.none),
-                                            child: Text(
-                                                user.isFollowing
-                                                    ? "Unfollow"
-                                                    : "Follow",
-                                                style: TextStyle(
-                                                    color: user.isFollowing
-                                                        ? textColor
-                                                        : Colors.white)),
-                                          ))),
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                      child: SizedBox(
-                                          height: 40,
+                                              onPressed: () => context
+                                                  .read<ProfileBloc>()
+                                                  .add(ToggleFollowEvent(
+                                                      user.id)),
+                                              style: ElevatedButton.styleFrom(
+                                                  backgroundColor:
+                                                      user.isFollowing
+                                                          ? Colors.grey[800]
+                                                          : const Color(
+                                                              0xFF6C63FF)),
+                                              child: Text(
+                                                  user.isFollowing
+                                                      ? "Unfollow"
+                                                      : "Follow",
+                                                  style: const TextStyle(
+                                                      color: Colors.white)))),
+                                      const SizedBox(width: 10),
+                                      Expanded(
                                           child: OutlinedButton(
                                               onPressed: () {},
-                                              style: OutlinedButton.styleFrom(
-                                                  side: BorderSide(
-                                                      color: Colors
-                                                          .grey.shade300)),
                                               child: Text("Message",
                                                   style: TextStyle(
-                                                      color: textColor))))),
-                                  const SizedBox(width: 10),
-                                  SizedBox(
-                                      height: 40,
-                                      width: 40,
-                                      child: OutlinedButton(
+                                                      color: textColor)))),
+                                      const SizedBox(width: 10),
+                                      OutlinedButton(
                                           onPressed: () => _showMoreOptions(
                                               context, user.id, user.isBlocked),
-                                          style: OutlinedButton.styleFrom(
-                                              padding: EdgeInsets.zero,
-                                              side: BorderSide(
-                                                  color: Colors.grey.shade300)),
-                                          child: const Icon(Icons.more_horiz))),
-                                ]
-                              ],
-                            ),
+                                          child: const Icon(Icons.more_horiz)),
+                                    ]
+                                  ],
+                                ),
+                              ),
+
+                              const SizedBox(height: 20),
+
+                              // Stats Card
+                              Container(
+                                margin:
+                                    const EdgeInsets.symmetric(horizontal: 16),
+                                padding: const EdgeInsets.symmetric(
+                                    vertical: 20, horizontal: 16),
+                                decoration: BoxDecoration(
+                                  color: isDark
+                                      ? const Color(0xFF1E1E1E)
+                                      : Colors.grey[100],
+                                  borderRadius: BorderRadius.circular(16),
+                                  // boxShadow: [
+                                  //   BoxShadow(
+                                  //     color: Colors.black.withOpacity(0.05),
+                                  //     blurRadius: 10,
+                                  //     offset: const Offset(0, 4),
+                                  //   )
+                                  // ]
+                                ),
+                                child: Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceAround,
+                                  children: [
+                                    _buildStatItem("Posts", posts.length,
+                                        textColor), // Use actual posts count
+                                    const SizedBox(
+                                        height: 30,
+                                        child: VerticalDivider(
+                                            color: Colors.grey,
+                                            thickness: 0.5)),
+                                    _buildStatItem("Followers",
+                                        user.followersCount, textColor),
+                                    const SizedBox(
+                                        height: 30,
+                                        child: VerticalDivider(
+                                            color: Colors.grey,
+                                            thickness: 0.5)),
+                                    _buildStatItem("Following",
+                                        user.followingCount, textColor),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 20),
+                            ],
                           ),
-                          const SizedBox(height: 24),
-                          if (!user.isBlocked)
-                            Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceEvenly,
-                                children: [
-                                  _buildStatItem(
-                                      "Posts", user.postsCount, textColor),
-                                  _buildStatItem("Followers",
-                                      user.followersCount, textColor),
-                                  _buildStatItem("Following",
-                                      user.followingCount, textColor)
-                                ]),
-                          const SizedBox(height: 20),
-                          if (user.bio != null)
-                            Padding(
-                                padding:
-                                    const EdgeInsets.symmetric(horizontal: 32),
-                                child: Text(user.bio!,
-                                    textAlign: TextAlign.center,
-                                    style: GoogleFonts.inter(
-                                        fontSize: 14, color: textColor))),
-                          const SizedBox(height: 10),
                         ],
                       ),
                     ),
-                    if (!user.isBlocked)
-                      SliverPersistentHeader(
-                        delegate: _SliverAppBarDelegate(
-                            TabBar(
-                                controller: _tabController,
-                                labelColor: const Color(0xFF6C63FF),
-                                unselectedLabelColor: Colors.grey,
-                                indicatorColor: const Color(0xFF6C63FF),
-                                tabs: [
-                                  Tab(
-                                      child: Row(
-                                          mainAxisAlignment:
-                                              MainAxisAlignment.center,
-                                          children: [
-                                        HugeIcon(
-                                            icon: HugeIcons.strokeRoundedGrid,
-                                            size: 20,
-                                            color: Colors.grey),
-                                        const SizedBox(width: 6),
-                                        const Text("Posts")
-                                      ])),
-                                  Tab(
-                                      child: Row(
-                                          mainAxisAlignment:
-                                              MainAxisAlignment.center,
-                                          children: [
-                                        HugeIcon(
-                                            icon: HugeIcons
-                                                .strokeRoundedVideoReplay,
-                                            size: 20,
-                                            color: Colors.grey),
-                                        const SizedBox(width: 6),
-                                        const Text("Reels")
-                                      ]))
-                                ]),
-                            backgroundColor),
-                        pinned: true,
-                      ),
+                    SliverPersistentHeader(
+                      delegate: _SliverAppBarDelegate(
+                          TabBar(
+                              controller: _tabController,
+                              labelColor: const Color(0xFF6C63FF),
+                              unselectedLabelColor: Colors.grey,
+                              indicatorColor: const Color(0xFF6C63FF),
+                              indicatorWeight: 3,
+                              tabs: [
+                                const Tab(
+                                    text: "Posts",
+                                    icon: Icon(Icons.grid_on, size: 20)),
+                                const Tab(
+                                    text: "Reels",
+                                    icon: Icon(Icons.video_library, size: 20)),
+                                if (isMe)
+                                  const Tab(
+                                      text: "Saved",
+                                      icon: Icon(Icons.bookmark_border,
+                                          size: 20)),
+                              ]),
+                          backgroundColor),
+                      pinned: true,
+                    ),
                   ];
                 },
-                body: user.isBlocked
-                    ? Center(
-                        child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                            HugeIcon(
-                                icon: HugeIcons.strokeRoundedUserBlock01,
-                                size: 64,
-                                color: Colors.grey),
-                            const SizedBox(height: 16),
-                            Text("You have blocked this user",
-                                style: TextStyle(color: textColor))
-                          ]))
-                    : TabBarView(
-                        controller: _tabController,
-                        children: [
-                          // POSTS TAB
-                          posts.isEmpty
-                              ? _buildEmptyState("No posts yet",
-                                  HugeIcons.strokeRoundedCamera01, textColor)
-                              : GridView.builder(
-                                  padding: const EdgeInsets.all(1),
-                                  physics:
-                                      const AlwaysScrollableScrollPhysics(),
-                                  gridDelegate:
-                                      const SliverGridDelegateWithFixedCrossAxisCount(
-                                          crossAxisCount: 3,
-                                          crossAxisSpacing: 1,
-                                          mainAxisSpacing: 1,
-                                          childAspectRatio: 1),
-                                  itemCount: posts.length,
-                                  itemBuilder: (context, index) {
-                                    final post = posts[index];
-                                    final mediaUrl = post.media.isNotEmpty
-                                        ? post.media.first.fullUrl
-                                        : "";
-                                    return GestureDetector(
-                                      onTap: () {
-                                        Navigator.push(
-                                          context,
-                                          MaterialPageRoute(
-                                            builder: (_) => PostDetailsScreen(
-                                                postId: post.id),
-                                          ),
-                                        );
-                                      },
-                                      child: CachedNetworkImage(
-                                          imageUrl: mediaUrl,
-                                          fit: BoxFit.cover,
-                                          placeholder: (context, url) =>
-                                              Container(
-                                                  color: Colors.grey[900]),
-                                          errorWidget: (context, url, error) =>
-                                              const Icon(Icons.error)),
-                                    );
-                                  },
-                                ),
+                body: TabBarView(
+                  controller: _tabController,
+                  children: [
+                    // POSTS TAB
+                    posts.isEmpty
+                        ? _buildEmptyState("No posts yet",
+                            HugeIcons.strokeRoundedCamera01, textColor)
+                        : GridView.builder(
+                            padding: const EdgeInsets.all(1),
+                            physics:
+                                const NeverScrollableScrollPhysics(), // NestedScrollView handles scroll
+                            gridDelegate:
+                                const SliverGridDelegateWithFixedCrossAxisCount(
+                                    crossAxisCount: 3,
+                                    crossAxisSpacing: 1,
+                                    mainAxisSpacing: 1,
+                                    childAspectRatio: 1),
+                            itemCount: posts.length,
+                            itemBuilder: (context, index) {
+                              final post = posts[index];
+                              final mediaUrl = post.media.isNotEmpty
+                                  ? post.media.first.fullUrl
+                                  : "";
+                              return GestureDetector(
+                                onTap: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) =>
+                                          PostDetailsScreen(postId: post.id),
+                                    ),
+                                  );
+                                },
+                                child: CachedNetworkImage(
+                                    imageUrl: mediaUrl,
+                                    fit: BoxFit.cover,
+                                    placeholder: (context, url) =>
+                                        Container(color: Colors.grey[900]),
+                                    errorWidget: (context, url, error) =>
+                                        const Icon(Icons.error)),
+                              );
+                            },
+                          ),
 
-                          // REELS TAB (UPDATED)
-                          reels.isEmpty
-                              ? _buildEmptyState("No reels yet",
-                                  HugeIcons.strokeRoundedVideo01, textColor)
-                              : GridView.builder(
-                                  padding: const EdgeInsets.all(1),
-                                  physics:
-                                      const AlwaysScrollableScrollPhysics(),
-                                  gridDelegate:
-                                      const SliverGridDelegateWithFixedCrossAxisCount(
-                                          crossAxisCount: 3,
-                                          crossAxisSpacing: 1,
-                                          mainAxisSpacing: 1,
-                                          childAspectRatio: 0.6),
-                                  itemCount: reels.length,
-                                  itemBuilder: (context, index) {
-                                    final reel = reels[index];
-
-                                    // We pass BOTH url variants to the item.
-                                    // The Item decides which one is valid.
-                                    return GestureDetector(
-                                      onTap: () {
-                                        Navigator.push(
-                                          context,
-                                          MaterialPageRoute(
-                                            builder: (_) => ReelPlayerScreen(
-                                              videoUrl: _fixUrl(reel.videoUrl),
-                                              // We pass the thumb URL, but if it's broken,
-                                              // the player might show black until video loads.
-                                              thumbnailUrl:
-                                                  _fixUrl(reel.thumbnailUrl),
-                                            ),
-                                          ),
-                                        );
-                                      },
-                                      child: Stack(
-                                        fit: StackFit.expand,
+                    // REELS TAB
+                    reels.isEmpty
+                        ? _buildEmptyState("No reels yet",
+                            HugeIcons.strokeRoundedVideo01, textColor)
+                        : GridView.builder(
+                            padding: const EdgeInsets.all(1),
+                            physics: const NeverScrollableScrollPhysics(),
+                            gridDelegate:
+                                const SliverGridDelegateWithFixedCrossAxisCount(
+                                    crossAxisCount: 3,
+                                    crossAxisSpacing: 1,
+                                    mainAxisSpacing: 1,
+                                    childAspectRatio: 0.6),
+                            itemCount: reels.length,
+                            itemBuilder: (context, index) {
+                              final reel = reels[index];
+                              return GestureDetector(
+                                onTap: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => ReelPlayerScreen(
+                                        videoUrl: _fixUrl(reel.videoUrl),
+                                        thumbnailUrl:
+                                            _fixUrl(reel.thumbnailUrl),
+                                      ),
+                                    ),
+                                  );
+                                },
+                                child: Stack(
+                                  fit: StackFit.expand,
+                                  children: [
+                                    ReelGridItem(
+                                      thumbnailUrl: _fixUrl(reel.thumbnailUrl),
+                                      videoUrl: _fixUrl(reel.videoUrl),
+                                    ),
+                                    const Positioned(
+                                      bottom: 5,
+                                      left: 5,
+                                      child: Row(
                                         children: [
-                                          // ROBUST ITEM
-                                          ReelGridItem(
-                                            thumbnailUrl:
-                                                _fixUrl(reel.thumbnailUrl),
-                                            videoUrl: _fixUrl(reel.videoUrl),
-                                          ),
-                                          const Positioned(
-                                            bottom: 5,
-                                            left: 5,
-                                            child: Row(
-                                              children: [
-                                                Icon(Icons.play_arrow,
-                                                    color: Colors.white,
-                                                    size: 14),
-                                              ],
-                                            ),
-                                          )
+                                          Icon(Icons.play_arrow,
+                                              color: Colors.white, size: 14),
                                         ],
                                       ),
-                                    );
-                                  },
+                                    )
+                                  ],
                                 ),
-                        ],
-                      ),
+                              );
+                            },
+                          ),
+
+                    // SAVED TAB (Only if isMe)
+                    if (isMe)
+                      savedPosts.isEmpty && savedReels.isEmpty
+                          ? _buildEmptyState("No saved items",
+                              Icons.bookmark_border, textColor)
+                          : GridView.builder(
+                              // Combined Grid or Separate? Let's just show Saved Posts for now as prompt implied mixed? Or just saved posts.
+                              padding: const EdgeInsets.all(1),
+                              physics: const NeverScrollableScrollPhysics(),
+                              gridDelegate:
+                                  const SliverGridDelegateWithFixedCrossAxisCount(
+                                      crossAxisCount: 3,
+                                      crossAxisSpacing: 1,
+                                      mainAxisSpacing: 1,
+                                      childAspectRatio: 1),
+                              // Combining both for the grid for now, or just posts.
+                              // User asked for "Saved" section. Usually saved posts.
+                              itemCount: savedPosts.length + savedReels.length,
+                              itemBuilder: (context, index) {
+                                if (index < savedPosts.length) {
+                                  final post = savedPosts[index];
+                                  final mediaUrl = post.media.isNotEmpty
+                                      ? post.media.first.fullUrl
+                                      : "";
+                                  return GestureDetector(
+                                    onTap: () => Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                            builder: (_) => PostDetailsScreen(
+                                                postId: post.id))),
+                                    child: CachedNetworkImage(
+                                        imageUrl: mediaUrl,
+                                        fit: BoxFit.cover,
+                                        placeholder: (_, __) =>
+                                            Container(color: Colors.grey[800]),
+                                        errorWidget: (_, __, ___) =>
+                                            const Icon(Icons.error)),
+                                  );
+                                } else {
+                                  final reel =
+                                      savedReels[index - savedPosts.length];
+                                  return GestureDetector(
+                                    onTap: () => Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                            builder: (_) => ReelPlayerScreen(
+                                                videoUrl:
+                                                    _fixUrl(reel.videoUrl),
+                                                thumbnailUrl: _fixUrl(
+                                                    reel.thumbnailUrl)))),
+                                    child: Stack(
+                                      fit: StackFit.expand,
+                                      children: [
+                                        ReelGridItem(
+                                            thumbnailUrl:
+                                                _fixUrl(reel.thumbnailUrl),
+                                            videoUrl: _fixUrl(reel.videoUrl)),
+                                        const Positioned(
+                                            bottom: 5,
+                                            right: 5,
+                                            child: Icon(Icons.video_library,
+                                                color: Colors.white, size: 16))
+                                      ],
+                                    ),
+                                  );
+                                }
+                              },
+                            ),
+                  ],
+                ),
               ),
             );
           }
@@ -646,7 +745,10 @@ class _ProfileScreenState extends State<ProfileScreen>
         height: 400,
         alignment: Alignment.center,
         child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-          HugeIcon(icon: icon, size: 48, color: Colors.grey.withOpacity(0.5)),
+          icon is IconData
+              ? Icon(icon, size: 48, color: Colors.grey.withOpacity(0.5))
+              : HugeIcon(
+                  icon: icon, size: 48, color: Colors.grey.withOpacity(0.5)),
           const SizedBox(height: 12),
           Text(text, style: TextStyle(color: color, fontSize: 16))
         ]),
