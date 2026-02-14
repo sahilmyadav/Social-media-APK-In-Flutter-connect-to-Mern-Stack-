@@ -10,6 +10,8 @@ import '../widgets/notification_tile.dart';
 
 import '../../../user/presentation/screens/profile_screen.dart';
 import '../../../user/presentation/bloc/profile_bloc.dart';
+import '../../../settings/presentation/screens/settings_screen.dart';
+import '../../../user/presentation/screens/post_details_screen.dart';
 import 'notification_skeleton.dart';
 
 class NotificationScreen extends StatelessWidget {
@@ -18,7 +20,8 @@ class NotificationScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return BlocProvider(
-      create: (context) => NotificationBloc(sl<NotificationRepository>())..add(LoadNotifications()),
+      create: (context) => NotificationBloc(sl<NotificationRepository>())
+        ..add(LoadNotifications()),
       child: const NotificationView(),
     );
   }
@@ -36,14 +39,22 @@ class NotificationView extends StatelessWidget {
     return Scaffold(
       backgroundColor: bgColor,
       appBar: AppBar(
-        title: Text("Notifications", style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 20, color: textColor)),
+        title: Text("Notifications",
+            style: GoogleFonts.inter(
+                fontWeight: FontWeight.bold, fontSize: 20, color: textColor)),
         elevation: 0,
         backgroundColor: bgColor,
         iconTheme: IconThemeData(color: textColor),
         actions: [
           IconButton(
-            icon: const HugeIcon(icon: HugeIcons.strokeRoundedSettings01, size: 24, color: Colors.grey),
-            onPressed: () {},
+            icon: const HugeIcon(
+                icon: HugeIcons.strokeRoundedSettings01,
+                size: 24,
+                color: Colors.grey),
+            onPressed: () {
+              Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => const SettingsScreen()));
+            },
           )
         ],
       ),
@@ -58,30 +69,34 @@ class NotificationView extends StatelessWidget {
                 BlocBuilder<NotificationBloc, NotificationState>(
                   builder: (context, state) {
                     int count = 0;
-                    if(state is NotificationLoaded) count = state.unreadCount;
+                    if (state is NotificationLoaded) count = state.unreadCount;
                     return _buildFilterChip(context, "Unread ($count)", false);
                   },
                 ),
               ],
             ),
           ),
-
           Expanded(
             child: BlocBuilder<NotificationBloc, NotificationState>(
               builder: (context, state) {
                 // Handle Initial/Loading with Skeleton
-                if (state is NotificationLoading || state is NotificationInitial) {
+                if (state is NotificationLoading ||
+                    state is NotificationInitial) {
                   return const NotificationSkeleton();
                 } else if (state is NotificationLoaded) {
                   if (state.notifications.isEmpty) {
-                    return Center(child: Text("No notifications yet", style: GoogleFonts.inter(color: Colors.grey)));
+                    return Center(
+                        child: Text("No notifications yet",
+                            style: GoogleFonts.inter(color: Colors.grey)));
                   }
 
                   return RefreshIndicator(
                     color: const Color(0xFF6C5DD3),
                     backgroundColor: isDark ? Colors.grey[900] : Colors.white,
                     onRefresh: () async {
-                      context.read<NotificationBloc>().add(RefreshNotifications());
+                      context
+                          .read<NotificationBloc>()
+                          .add(RefreshNotifications());
                     },
                     child: ListView.builder(
                       itemCount: state.notifications.length,
@@ -112,13 +127,11 @@ class NotificationView extends StatelessWidget {
 
     // Logic: If selected -> White Text.
     // If NOT selected: Dark Mode -> White Text, Light Mode -> Black Text.
-    final textColor = isSelected
-        ? Colors.white
-        : (isDark ? Colors.white : Colors.black);
+    final textColor =
+        isSelected ? Colors.white : (isDark ? Colors.white : Colors.black);
 
-    final borderColor = isSelected
-        ? null
-        : (isDark ? Colors.grey[800]! : Colors.grey.shade300);
+    final borderColor =
+        isSelected ? null : (isDark ? Colors.grey[800]! : Colors.grey.shade300);
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
@@ -130,10 +143,7 @@ class NotificationView extends StatelessWidget {
       child: Text(
         label,
         style: GoogleFonts.inter(
-            color: textColor,
-            fontWeight: FontWeight.w600,
-            fontSize: 13
-        ),
+            color: textColor, fontWeight: FontWeight.w600, fontSize: 13),
       ),
     );
   }
@@ -141,13 +151,22 @@ class NotificationView extends StatelessWidget {
   void _handleNotificationTap(BuildContext context, dynamic item) {
     context.read<NotificationBloc>().add(MarkReadEvent(item.id));
 
-    if (item.type == 'follow' || item.type == 'comment' || item.type == 'like') {
-      Navigator.push(context, MaterialPageRoute(
-          builder: (_) => BlocProvider(
-            create: (_) => sl<ProfileBloc>(),
-            child: ProfileScreen(userId: item.sender.id),
-          )
-      ));
+    if (item.type == 'follow') {
+      Navigator.push(
+          context,
+          MaterialPageRoute(
+              builder: (_) => BlocProvider(
+                    create: (_) => sl<ProfileBloc>(),
+                    child: ProfileScreen(userId: item.sender.id),
+                  )));
+    } else if (item.type == 'like' || item.type == 'comment') {
+      if (item.referenceId != null) {
+        Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => PostDetailsScreen(postId: item.referenceId!),
+            ));
+      }
     }
   }
 }

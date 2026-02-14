@@ -35,7 +35,7 @@ dependencies:
   timeago: ^3.6.1              # For "5 mins ago" timestamps
   share_plus: ^7.2.1
 
-  photo_manager: ^3.0.0-dev.1  # For fetching gallery images efficiently
+  photo_manager: ^3.5.0  # Upgraded for better Limited Access support
   image_editor_plus: ^1.0.0    # Optional: For cropping/filters (Insta-like)
   video_player: ^2.8.2         # To preview videos before upload
   path_provider: ^2.1.2        # File system access
@@ -59,6 +59,10 @@ dependencies:
 
   agora_rtc_engine: ^6.3.0     # The video streaming engine
   wakelock_plus: ^1.1.0        # Keeps screen on during live
+  record: ^6.2.0
+  chewie: ^1.13.0
+  geolocator: ^14.0.2
+  url_launcher: ^6.3.2
 
 dev_dependencies:
   flutter_test:

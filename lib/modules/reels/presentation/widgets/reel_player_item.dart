@@ -7,6 +7,7 @@ import 'package:visibility_detector/visibility_detector.dart';
 import 'package:hugeicons/hugeicons.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:share_plus/share_plus.dart';
+import 'dart:ui';
 
 import '../../domain/entities/reel_entity.dart';
 import '../bloc/reels_bloc.dart';
@@ -23,7 +24,8 @@ class ReelPlayerItem extends StatefulWidget {
   State<ReelPlayerItem> createState() => _ReelPlayerItemState();
 }
 
-class _ReelPlayerItemState extends State<ReelPlayerItem> with SingleTickerProviderStateMixin {
+class _ReelPlayerItemState extends State<ReelPlayerItem>
+    with SingleTickerProviderStateMixin {
   VideoPlayerController? _controller;
   bool _initialized = false;
   bool _isVisible = false; // Track visibility status
@@ -34,10 +36,11 @@ class _ReelPlayerItemState extends State<ReelPlayerItem> with SingleTickerProvid
   @override
   void initState() {
     super.initState();
-    _heartAnimationController = AnimationController(vsync: this, duration: const Duration(milliseconds: 200));
+    _heartAnimationController = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 200));
     _heartScaleAnimation = Tween<double>(begin: 0.0, end: 1.2).animate(
-        CurvedAnimation(parent: _heartAnimationController, curve: Curves.elasticOut)
-    );
+        CurvedAnimation(
+            parent: _heartAnimationController, curve: Curves.elasticOut));
 
     _heartAnimationController.addStatusListener((status) {
       if (status == AnimationStatus.completed) {
@@ -98,14 +101,17 @@ class _ReelPlayerItemState extends State<ReelPlayerItem> with SingleTickerProvid
 
   void _togglePlay() {
     if (_controller != null && _initialized) {
-      if (_controller!.value.isPlaying) _controller!.pause();
-      else _controller!.play();
+      if (_controller!.value.isPlaying)
+        _controller!.pause();
+      else
+        _controller!.play();
     }
   }
 
   void _shareReel() {
     final String reelLink = "https://clikkme.in/reel/${widget.reel.id}";
-    final String text = "Check out this reel by ${widget.reel.user.firstName}: $reelLink";
+    final String text =
+        "Check out this reel by ${widget.reel.user.firstName}: $reelLink";
     Share.share(text);
   }
 
@@ -142,44 +148,103 @@ class _ReelPlayerItemState extends State<ReelPlayerItem> with SingleTickerProvid
                 fit: StackFit.expand,
                 children: [
                   if (_initialized && _controller != null)
-                    Center(
-                      child: AspectRatio(
-                        aspectRatio: _controller!.value.aspectRatio,
-                        child: VideoPlayer(_controller!),
-                      ),
+                    // OLD CODE:
+                    // Center(
+                    //   child: AspectRatio(
+                    //     aspectRatio: _controller!.value.aspectRatio,
+                    //     child: VideoPlayer(_controller!),
+                    //   ),
+                    // )
+
+                    // NEW CODE (Responsive):
+                    // Auto-adjust based on video orientation.
+                    // Portrait (< 1.0): Cover the screen (Immersive).
+                    // Landscape (>= 1.0): Contain (Show full content, prevent pixelation/cropping).
+                    // NEW CODE (Optimal Responsive):
+                    // 1. Vertical Videos (< 0.8): Full Screen Cover.
+                    // 2. Others (Landscape/Square): Blurred Background + Contained Video.
+                    Builder(
+                      builder: (context) {
+                        final videoRatio = _controller!.value.aspectRatio;
+                        final isVertical = videoRatio < 0.8;
+
+                        if (isVertical) {
+                          return SizedBox.expand(
+                            child: FittedBox(
+                              fit: BoxFit.cover,
+                              child: SizedBox(
+                                width: _controller!.value.size.width,
+                                height: _controller!.value.size.height,
+                                child: VideoPlayer(_controller!),
+                              ),
+                            ),
+                          );
+                        } else {
+                          // Landscape/Square: Show blurred background to fill screen
+                          return Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              // Background: Blurred Thumbnail
+                              if (widget.reel.thumbnailUrl.isNotEmpty)
+                                CachedNetworkImage(
+                                  imageUrl: widget.reel.thumbnailUrl,
+                                  fit: BoxFit.cover,
+                                  errorWidget: (context, url, error) =>
+                                      const SizedBox(),
+                                ),
+
+                              // Blur Effect
+                              BackdropFilter(
+                                filter:
+                                    ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+                                child: Container(
+                                  color: Colors.black.withOpacity(0.5),
+                                ),
+                              ),
+
+                              // Foreground: Contained Video
+                              Center(
+                                child: AspectRatio(
+                                  aspectRatio: videoRatio,
+                                  child: VideoPlayer(_controller!),
+                                ),
+                              ),
+                            ],
+                          );
+                        }
+                      },
                     )
                   else
-                  // Thumbnail while loading
+                    // Thumbnail while loading
                     CachedNetworkImage(
                       imageUrl: widget.reel.thumbnailUrl.startsWith('http')
                           ? widget.reel.thumbnailUrl
                           : "https://clikkme.in${widget.reel.thumbnailUrl}",
                       fit: BoxFit.cover,
-                      errorWidget: (context, url, error) => Container(color: Colors.black),
+                      errorWidget: (context, url, error) =>
+                          Container(color: Colors.black),
                     ),
                   Container(
                     decoration: const BoxDecoration(
                         gradient: LinearGradient(
-                          colors: [Colors.transparent, Colors.black54],
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          stops: [0.7, 1.0],
-                        )
-                    ),
+                      colors: [Colors.transparent, Colors.black54],
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      stops: [0.7, 1.0],
+                    )),
                   ),
                 ],
               ),
             ),
           ),
-
           if (_showHeart)
             Center(
               child: ScaleTransition(
                 scale: _heartScaleAnimation,
-                child: const Icon(Icons.favorite, color: Colors.white, size: 100),
+                child:
+                    const Icon(Icons.favorite, color: Colors.white, size: 100),
               ),
             ),
-
           Positioned(
             right: 16,
             bottom: 100,
@@ -190,22 +255,31 @@ class _ReelPlayerItemState extends State<ReelPlayerItem> with SingleTickerProvid
                 _buildCustomActionBtn(
                   child: widget.reel.isLiked
                       ? const Icon(Icons.favorite, color: Colors.red, size: 28)
-                      : const HugeIcon(icon: HugeIcons.strokeRoundedFavourite, color: Colors.white, size: 28),
+                      : const HugeIcon(
+                          icon: HugeIcons.strokeRoundedFavourite,
+                          color: Colors.white,
+                          size: 28),
                   label: "${widget.reel.likesCount}",
-                  onTap: () => context.read<ReelsBloc>().add(LikeReelEvent(widget.reel.id)),
+                  onTap: () => context
+                      .read<ReelsBloc>()
+                      .add(LikeReelEvent(widget.reel.id)),
                 ),
                 const SizedBox(height: 24),
 
                 // 2. Comment Button
                 _buildCustomActionBtn(
-                  child: const HugeIcon(icon: HugeIcons.strokeRoundedComment01, color: Colors.white, size: 28),
+                  child: const HugeIcon(
+                      icon: HugeIcons.strokeRoundedComment01,
+                      color: Colors.white,
+                      size: 28),
                   label: "${widget.reel.commentsCount}",
                   onTap: () {
                     showModalBottomSheet(
                       context: context,
                       isScrollControlled: true,
                       backgroundColor: Colors.transparent,
-                      builder: (context) => ReelCommentsSheet(reelId: widget.reel.id),
+                      builder: (context) =>
+                          ReelCommentsSheet(reelId: widget.reel.id),
                     );
                   },
                 ),
@@ -215,22 +289,29 @@ class _ReelPlayerItemState extends State<ReelPlayerItem> with SingleTickerProvid
                 _buildCustomActionBtn(
                   child: widget.reel.isSaved
                       ? const Icon(Icons.bookmark, color: Colors.blue, size: 28)
-                      : const HugeIcon(icon: HugeIcons.strokeRoundedBookmark02, color: Colors.white, size: 28),
+                      : const HugeIcon(
+                          icon: HugeIcons.strokeRoundedBookmark02,
+                          color: Colors.white,
+                          size: 28),
                   label: "Save",
-                  onTap: () => context.read<ReelsBloc>().add(SaveReelEvent(widget.reel.id)),
+                  onTap: () => context
+                      .read<ReelsBloc>()
+                      .add(SaveReelEvent(widget.reel.id)),
                 ),
                 const SizedBox(height: 24),
 
                 // 4. Share Button
                 _buildCustomActionBtn(
-                  child: const HugeIcon(icon: HugeIcons.strokeRoundedSent, color: Colors.white, size: 28),
+                  child: const HugeIcon(
+                      icon: HugeIcons.strokeRoundedSent,
+                      color: Colors.white,
+                      size: 28),
                   label: "Share",
                   onTap: _shareReel,
                 ),
               ],
             ),
           ),
-
           Positioned(
             left: 16,
             right: 80,
@@ -241,40 +322,56 @@ class _ReelPlayerItemState extends State<ReelPlayerItem> with SingleTickerProvid
                 Row(
                   children: [
                     GestureDetector(
-                      onTap: () => _navigateToProfile(context, widget.reel.user.id),
+                      onTap: () =>
+                          _navigateToProfile(context, widget.reel.user.id),
                       child: CircleAvatar(
                         radius: 16,
                         backgroundColor: Colors.grey[800],
                         backgroundImage: widget.reel.user.profilePicture != null
-                            ? CachedNetworkImageProvider(widget.reel.user.profilePicture!.startsWith('http')
-                            ? widget.reel.user.profilePicture!
-                            : "https://clikkme.in${widget.reel.user.profilePicture}")
+                            ? CachedNetworkImageProvider(widget
+                                    .reel.user.profilePicture!
+                                    .startsWith('http')
+                                ? widget.reel.user.profilePicture!
+                                : "https://clikkme.in${widget.reel.user.profilePicture}")
                             : null,
                       ),
                     ),
                     const SizedBox(width: 10),
                     Text(
                       widget.reel.user.username,
-                      style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14),
+                      style: GoogleFonts.inter(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14),
                     ),
                     const SizedBox(width: 10),
                     if (!widget.reel.isFollowing)
                       GestureDetector(
-                        onTap: () => context.read<ReelsBloc>().add(ToggleFollowReelUserEvent(widget.reel.user.id)),
+                        onTap: () => context.read<ReelsBloc>().add(
+                            ToggleFollowReelUserEvent(widget.reel.user.id)),
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 4),
                           decoration: BoxDecoration(
                             border: Border.all(color: Colors.white70),
                             borderRadius: BorderRadius.circular(6),
                           ),
-                          child: Text("Follow", style: GoogleFonts.inter(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600)),
+                          child: Text("Follow",
+                              style: GoogleFonts.inter(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600)),
                         ),
                       ),
                   ],
                 ),
                 const SizedBox(height: 10),
                 if (widget.reel.caption.isNotEmpty)
-                  Text(widget.reel.caption, maxLines: 2, overflow: TextOverflow.ellipsis, style: GoogleFonts.inter(color: Colors.white, fontSize: 13)),
+                  Text(widget.reel.caption,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style:
+                          GoogleFonts.inter(color: Colors.white, fontSize: 13)),
                 const SizedBox(height: 10),
                 Row(
                   children: [
@@ -285,7 +382,8 @@ class _ReelPlayerItemState extends State<ReelPlayerItem> with SingleTickerProvid
                         "Original Audio • ${widget.reel.user.firstName}",
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.inter(color: Colors.white, fontSize: 12),
+                        style: GoogleFonts.inter(
+                            color: Colors.white, fontSize: 12),
                       ),
                     ),
                   ],
@@ -302,19 +400,28 @@ class _ReelPlayerItemState extends State<ReelPlayerItem> with SingleTickerProvid
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => BlocProvider(create: (_) => sl<ProfileBloc>(), child: ProfileScreen(userId: userId)),
+        builder: (_) => BlocProvider(
+            create: (_) => sl<ProfileBloc>(),
+            child: ProfileScreen(userId: userId)),
       ),
     );
   }
 
-  Widget _buildCustomActionBtn({required Widget child, required String label, required VoidCallback onTap}) {
+  Widget _buildCustomActionBtn(
+      {required Widget child,
+      required String label,
+      required VoidCallback onTap}) {
     return GestureDetector(
       onTap: onTap,
       child: Column(
         children: [
           child,
           const SizedBox(height: 6),
-          Text(label, style: GoogleFonts.inter(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500)),
+          Text(label,
+              style: GoogleFonts.inter(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500)),
         ],
       ),
     );

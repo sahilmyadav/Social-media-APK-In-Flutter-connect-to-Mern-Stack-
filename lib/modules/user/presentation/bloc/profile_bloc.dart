@@ -1,48 +1,102 @@
 import 'dart:io';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import '../../../feed/domain/entities/post_entity.dart';// Ensure this path matches
+import '../../../feed/domain/entities/post_entity.dart'; // Ensure this path matches
 import '../../../reels/domain/entities/reel_entity.dart';
 import '../../domain/entities/user_entity.dart';
 import '../../domain/repositories/profile_repository.dart';
 
 // Events
 abstract class ProfileEvent {}
-class FetchProfile extends ProfileEvent { final String userId; FetchProfile(this.userId); }
-class RefreshProfile extends ProfileEvent { final String userId; RefreshProfile(this.userId); }
-class ToggleFollowEvent extends ProfileEvent { final String userId; ToggleFollowEvent(this.userId); }
-class BlockUserEvent extends ProfileEvent { final String userId; BlockUserEvent(this.userId); }
-class UnblockUserEvent extends ProfileEvent { final String userId; UnblockUserEvent(this.userId); }
-class ReportUserEvent extends ProfileEvent { final String userId; final String reason; ReportUserEvent(this.userId, this.reason); }
-class UpdateProfileEvent extends ProfileEvent { final String? bio; final File? image; UpdateProfileEvent({this.bio, this.image}); }
+
+class FetchProfile extends ProfileEvent {
+  final String userId;
+  FetchProfile(this.userId);
+}
+
+class RefreshProfile extends ProfileEvent {
+  final String userId;
+  RefreshProfile(this.userId);
+}
+
+class ToggleFollowEvent extends ProfileEvent {
+  final String userId;
+  ToggleFollowEvent(this.userId);
+}
+
+class BlockUserEvent extends ProfileEvent {
+  final String userId;
+  BlockUserEvent(this.userId);
+}
+
+class UnblockUserEvent extends ProfileEvent {
+  final String userId;
+  UnblockUserEvent(this.userId);
+}
+
+class ReportUserEvent extends ProfileEvent {
+  final String userId;
+  final String reason;
+  ReportUserEvent(this.userId, this.reason);
+}
+
+class UpdateProfileEvent extends ProfileEvent {
+  final String? bio;
+  final File? image;
+  UpdateProfileEvent({this.bio, this.image});
+}
 
 // States
 abstract class ProfileState {}
+
 class ProfileInitial extends ProfileState {}
+
 class ProfileLoading extends ProfileState {}
+
 class ProfileLoaded extends ProfileState {
   final UserEntity user;
   final bool isMe;
   final List<PostEntity> posts;
-  final List<ReelEntity> reels; // Added Reels List
+  final List<ReelEntity> reels;
+  final List<PostEntity> savedPosts; // Added
+  final List<ReelEntity> savedReels; // Added
 
-  ProfileLoaded(this.user, {this.isMe = false, this.posts = const [], this.reels = const []});
+  ProfileLoaded(
+    this.user, {
+    this.isMe = false,
+    this.posts = const [],
+    this.reels = const [],
+    this.savedPosts = const [],
+    this.savedReels = const [],
+  });
 
-  ProfileLoaded copyWith({UserEntity? user, bool? isMe, List<PostEntity>? posts, List<ReelEntity>? reels}) {
+  ProfileLoaded copyWith({
+    UserEntity? user,
+    bool? isMe,
+    List<PostEntity>? posts,
+    List<ReelEntity>? reels,
+    List<PostEntity>? savedPosts,
+    List<ReelEntity>? savedReels,
+  }) {
     return ProfileLoaded(
       user ?? this.user,
       isMe: isMe ?? this.isMe,
       posts: posts ?? this.posts,
       reels: reels ?? this.reels,
+      savedPosts: savedPosts ?? this.savedPosts,
+      savedReels: savedReels ?? this.savedReels,
     );
   }
 }
-class ProfileError extends ProfileState { final String message; ProfileError(this.message); }
+
+class ProfileError extends ProfileState {
+  final String message;
+  ProfileError(this.message);
+}
 
 class ProfileBloc extends Bloc<ProfileEvent, ProfileState> {
   final ProfileRepository repository;
 
   ProfileBloc(this.repository) : super(ProfileInitial()) {
-
     on<FetchProfile>((event, emit) async {
       emit(ProfileLoading());
       try {
@@ -51,28 +105,57 @@ class ProfileBloc extends Bloc<ProfileEvent, ProfileState> {
           emit(ProfileLoaded(cachedUser));
         }
 
-        // 1. Fetch Profile First to determine blocked status
+        // 1. Fetch Profile First
         final user = await repository.getRemoteUserProfile(event.userId);
+        UserEntity? myProfile;
+
+        // Determine if "isMe"
+        bool isMe = event.userId == "me";
+        if (!isMe) {
+          try {
+            myProfile = await repository.getMyProfile();
+            isMe = myProfile.id == user.id;
+          } catch (_) {
+            // Ignore error if can't fetch my profile
+          }
+        }
 
         List<PostEntity> posts = [];
         List<ReelEntity> reels = [];
+        List<PostEntity> savedPosts = [];
+        List<ReelEntity> savedReels = [];
 
         // 2. Only fetch posts and reels if NOT blocked
         if (!user.isBlocked) {
-          // Fetch both concurrently for better performance
-          final results = await Future.wait([
-            repository.getUserPosts(event.userId),
-            repository.getUserReels(event.userId),
-          ]);
+          final futures = <Future>[
+            repository.getUserPosts(user.id), // Use resolved user.id
+            repository.getUserReels(user.id),
+          ];
+
+          if (isMe) {
+            futures.add(repository.getSavedPosts());
+            futures.add(repository.getSavedReels());
+          }
+
+          final results = await Future.wait(futures);
 
           posts = results[0] as List<PostEntity>;
           reels = results[1] as List<ReelEntity>;
+
+          if (isMe && results.length > 2) {
+            savedPosts = results[2] as List<PostEntity>;
+            savedReels = results[3] as List<ReelEntity>;
+          }
         }
 
-        // Check if viewing own profile (Mock check, ideally compare IDs)
-        bool isMe = false;
-
-        emit(ProfileLoaded(user, isMe: isMe, posts: posts, reels: reels));
+        emit(ProfileLoaded(
+          user,
+          isMe: isMe,
+          posts: posts,
+          reels: reels,
+          savedPosts: savedPosts,
+          savedReels: savedReels,
+        ));
       } catch (e) {
         if (state is! ProfileLoaded) {
           emit(ProfileError("Failed to load profile or user not found"));
@@ -83,18 +166,51 @@ class ProfileBloc extends Bloc<ProfileEvent, ProfileState> {
     on<RefreshProfile>((event, emit) async {
       try {
         final user = await repository.getRemoteUserProfile(event.userId);
+        UserEntity? myProfile;
+
+        // Determine if "isMe"
+        bool isMe = event.userId == "me";
+        if (!isMe) {
+          try {
+            myProfile = await repository.getMyProfile();
+            isMe = myProfile.id == user.id;
+          } catch (_) {}
+        }
+
         List<PostEntity> posts = [];
         List<ReelEntity> reels = [];
+        List<PostEntity> savedPosts = [];
+        List<ReelEntity> savedReels = [];
 
         if (!user.isBlocked) {
-          final results = await Future.wait([
-            repository.getUserPosts(event.userId),
-            repository.getUserReels(event.userId),
-          ]);
+          final futures = <Future>[
+            repository.getUserPosts(user.id),
+            repository.getUserReels(user.id),
+          ];
+
+          if (isMe) {
+            futures.add(repository.getSavedPosts());
+            futures.add(repository.getSavedReels());
+          }
+
+          final results = await Future.wait(futures);
           posts = results[0] as List<PostEntity>;
           reels = results[1] as List<ReelEntity>;
+
+          if (isMe && results.length > 2) {
+            savedPosts = results[2] as List<PostEntity>;
+            savedReels = results[3] as List<ReelEntity>;
+          }
         }
-        emit(ProfileLoaded(user, isMe: false, posts: posts, reels: reels));
+
+        emit(ProfileLoaded(
+          user,
+          isMe: isMe,
+          posts: posts,
+          reels: reels,
+          savedPosts: savedPosts,
+          savedReels: savedReels,
+        ));
       } catch (_) {}
     });
 
@@ -109,7 +225,8 @@ class ProfileBloc extends Bloc<ProfileEvent, ProfileState> {
 
         final updatedUser = currentState.user.copyWith(
           isFollowing: !originalStatus,
-          followersCount: originalStatus ? originalCount - 1 : originalCount + 1,
+          followersCount:
+              originalStatus ? originalCount - 1 : originalCount + 1,
         );
 
         emit(currentState.copyWith(user: updatedUser));
@@ -131,15 +248,17 @@ class ProfileBloc extends Bloc<ProfileEvent, ProfileState> {
       if (currentState is ProfileLoaded) {
         // Optimistic UI: Mark as blocked immediately and clear posts/reels
         emit(currentState.copyWith(
-            user: currentState.user.copyWith(isBlocked: true, isFollowing: false),
+            user:
+                currentState.user.copyWith(isBlocked: true, isFollowing: false),
             posts: [], // Clear posts immediately
-            reels: []  // Clear reels immediately
-        ));
+            reels: [] // Clear reels immediately
+            ));
         try {
           await repository.blockUser(event.userId);
         } catch (e) {
           // Revert if failed
-          emit(currentState.copyWith(user: currentState.user.copyWith(isBlocked: false)));
+          emit(currentState.copyWith(
+              user: currentState.user.copyWith(isBlocked: false)));
         }
       }
     });
@@ -148,14 +267,16 @@ class ProfileBloc extends Bloc<ProfileEvent, ProfileState> {
       final currentState = state;
       if (currentState is ProfileLoaded) {
         // Optimistic UI: Mark as unblocked immediately
-        emit(currentState.copyWith(user: currentState.user.copyWith(isBlocked: false)));
+        emit(currentState.copyWith(
+            user: currentState.user.copyWith(isBlocked: false)));
         try {
           await repository.unblockUser(event.userId);
           // Trigger refresh to get posts and reels back
           add(RefreshProfile(event.userId));
         } catch (e) {
           // Revert if failed
-          emit(currentState.copyWith(user: currentState.user.copyWith(isBlocked: true)));
+          emit(currentState.copyWith(
+              user: currentState.user.copyWith(isBlocked: true)));
         }
       }
     });

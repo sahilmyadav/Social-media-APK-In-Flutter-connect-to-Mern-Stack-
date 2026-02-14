@@ -42,3 +42,7 @@ android {
 flutter {
     source = "../.."
 }
+dependencies {
+    implementation("com.squareup.okhttp3:okhttp:5.3.2")     // Latest stable as of late 2025/early 2026
+    implementation("com.squareup.okio:okio:3.9.0")          // Compatible version (okio is required by okhttp)
+}

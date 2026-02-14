@@ -43,13 +43,19 @@ class ProfileRepositoryImpl implements ProfileRepository {
 
   @override
   Future<UserEntity> getRemoteUserProfile(String userId) async {
+    // FIX: The backend returns 404 for "me", so we redirect to local profile fetch.
+    if (userId == "me") {
+      return getMyProfile();
+    }
     try {
       List<String> myBlockedIds = [];
       try {
-        final myProfileResponse = await _apiClient.dio.get('/users/current-user');
+        final myProfileResponse =
+            await _apiClient.dio.get('/users/current-user');
         final myData = myProfileResponse.data['data'];
         if (myData['blockedUsers'] != null) {
-          myBlockedIds = List<String>.from(myData['blockedUsers'].map((e) => e.toString()));
+          myBlockedIds = List<String>.from(
+              myData['blockedUsers'].map((e) => e.toString()));
         }
       } catch (e) {
         debugPrint("⚠️ Could not verify block status: $e");
@@ -57,16 +63,24 @@ class ProfileRepositoryImpl implements ProfileRepository {
 
       if (myBlockedIds.contains(userId)) {
         debugPrint("🚫 User $userId is blocked. Fetching from Blocked List.");
-        final blockedListResponse = await _apiClient.dio.get('/users/blocked-list');
-        final Map<String, dynamic> responseData = blockedListResponse.data['data'];
+        final blockedListResponse =
+            await _apiClient.dio.get('/users/blocked-list');
+        final Map<String, dynamic> responseData =
+            blockedListResponse.data['data'];
         final List blockedUsers = responseData['blockedUsers'] ?? [];
 
-        final blockedUserJson = blockedUsers.firstWhere((u) => u['_id'] == userId, orElse: () => null);
+        final blockedUserJson = blockedUsers
+            .firstWhere((u) => u['_id'] == userId, orElse: () => null);
 
         if (blockedUserJson != null) {
           return _mapJsonToEntity(blockedUserJson).copyWith(isBlocked: true);
         } else {
-          return UserEntity(id: userId, username: "Blocked User", firstName: "User", lastName: "Blocked", isBlocked: true);
+          return UserEntity(
+              id: userId,
+              username: "Blocked User",
+              firstName: "User",
+              lastName: "Blocked",
+              isBlocked: true);
         }
       }
 
@@ -78,7 +92,6 @@ class ProfileRepositoryImpl implements ProfileRepository {
       await box.put(userId, response.data['data']);
 
       return targetUser;
-
     } catch (e) {
       debugPrint("❌ API ERROR (getRemoteUserProfile): $e");
       rethrow;
@@ -131,13 +144,15 @@ class ProfileRepositoryImpl implements ProfileRepository {
 
   @override
   Future<void> reportUser(String userId, String reason) async {
-    debugPrint("⚠️ REPORT MOCKED: [POST] /users/report/$userId Reason: $reason");
+    debugPrint(
+        "⚠️ REPORT MOCKED: [POST] /users/report/$userId Reason: $reason");
     await Future.delayed(const Duration(seconds: 1));
   }
 
   @override
   Future<List<UserEntity>> searchUsers(String query) async {
-    final response = await _apiClient.dio.get('/search/users', queryParameters: {'q': query});
+    final response = await _apiClient.dio
+        .get('/search/users', queryParameters: {'q': query});
     final List data = response.data['data'];
     return data.map((e) => _mapJsonToEntity(e)).toList();
   }
@@ -162,7 +177,8 @@ class ProfileRepositoryImpl implements ProfileRepository {
       final String endpoint = '/feed/posts/$userId';
       final response = await _apiClient.dio.get(endpoint);
 
-      if (response.data['data'] != null && response.data['data']['posts'] != null) {
+      if (response.data['data'] != null &&
+          response.data['data']['posts'] != null) {
         final List data = response.data['data']['posts'];
         return data.map((json) => PostEntity.fromJson(json)).toList();
       }
@@ -179,7 +195,8 @@ class ProfileRepositoryImpl implements ProfileRepository {
       final String endpoint = '/reel/user/$userId';
       final response = await _apiClient.dio.get(endpoint);
 
-      if (response.data['data'] != null && response.data['data']['reels'] != null) {
+      if (response.data['data'] != null &&
+          response.data['data']['reels'] != null) {
         final List data = response.data['data']['reels'];
         return data.map((json) => ReelEntity.fromJson(json)).toList();
       }
@@ -191,5 +208,43 @@ class ProfileRepositoryImpl implements ProfileRepository {
   }
 
   @override
-  Future<UserEntity> getUserProfile(String userId) => getRemoteUserProfile(userId);
+  Future<List<PostEntity>> getSavedPosts() async {
+    try {
+      final response = await _apiClient.dio.get('/post/user-saved-posts');
+      if (response.data['data'] != null) {
+        final dynamic data = response.data['data'];
+        if (data is List) {
+          return data.map((json) => PostEntity.fromJson(json)).toList();
+        } else if (data is Map && data['posts'] != null) {
+          return (data['posts'] as List)
+              .map((json) => PostEntity.fromJson(json))
+              .toList();
+        }
+      }
+      return [];
+    } catch (e) {
+      debugPrint("❌ API ERROR (getSavedPosts): $e");
+      return [];
+    }
+  }
+
+  @override
+  Future<List<ReelEntity>> getSavedReels() async {
+    try {
+      final response = await _apiClient.dio.get('/reel/saved');
+      if (response.data['data'] != null &&
+          response.data['data']['reels'] != null) {
+        final List data = response.data['data']['reels'];
+        return data.map((json) => ReelEntity.fromJson(json)).toList();
+      }
+      return [];
+    } catch (e) {
+      debugPrint("❌ API ERROR (getSavedReels): $e");
+      return [];
+    }
+  }
+
+  @override
+  Future<UserEntity> getUserProfile(String userId) =>
+      getRemoteUserProfile(userId);
 }

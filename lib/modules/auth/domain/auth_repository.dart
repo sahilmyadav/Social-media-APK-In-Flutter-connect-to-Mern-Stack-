@@ -30,7 +30,10 @@ abstract class AuthRepository {
   });
 
   Future<void> forgotPassword(String email);
-  Future<void> resetPassword({required String email, required String otp, required String newPassword});
+  Future<void> resetPassword(
+      {required String email,
+      required String otp,
+      required String newPassword});
 
   Future<bool> isLoggedIn();
   Future<void> logout();
@@ -38,4 +41,8 @@ abstract class AuthRepository {
   Future<void> saveRegistrationStep(String step, String data);
   Future<Map<String, String>?> getRegistrationStep();
   Future<void> clearRegistrationStep();
+
+  // --- NEW: Request Storage/Photos Permission ---
+  Future<bool> requestStoragePermission();
+  Future<void> manageStoragePermission(); // Added for Manage Access
 }

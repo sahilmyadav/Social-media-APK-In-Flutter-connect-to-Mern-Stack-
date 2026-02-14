@@ -81,4 +81,59 @@ class HiveHelper {
     final box = Hive.box(_feedBoxName);
     return box.get('notifications_list', defaultValue: []) ?? [];
   }
+
+  // --- CHAT THREAD CACHING ---
+
+  /// Cache chat threads for instant loading
+  static Future<void> cacheThreads(List data) async {
+    final box = await _getBox();
+    await box.put('chat_threads', data);
+  }
+
+  /// Get cached chat threads
+  static List getCachedThreads() {
+    if (!Hive.isBoxOpen(_feedBoxName)) return [];
+    final box = Hive.box(_feedBoxName);
+    return box.get('chat_threads', defaultValue: []) ?? [];
+  }
+
+  /// Cache messages for a specific thread
+  static Future<void> cacheMessages(String threadId, List data) async {
+    final box = await _getBox();
+    await box.put('chat_messages_$threadId', data);
+  }
+
+  /// Get cached messages for a specific thread
+  static List getCachedMessages(String threadId) {
+    if (!Hive.isBoxOpen(_feedBoxName)) return [];
+    final box = Hive.box(_feedBoxName);
+    return box.get('chat_messages_$threadId', defaultValue: []) ?? [];
+  }
+
+  // --- FOLLOWED USERS CACHING (NEW) ---
+  static Future<void> cacheFollowedUser(String userId) async {
+    final box = await _getBox();
+    final List<String> current =
+        (box.get('followed_users') as List?)?.cast<String>() ?? [];
+    if (!current.contains(userId)) {
+      current.add(userId);
+      await box.put('followed_users', current);
+    }
+  }
+
+  static Future<void> unfollowUser(String userId) async {
+    final box = await _getBox();
+    final List<String> current =
+        (box.get('followed_users') as List?)?.cast<String>() ?? [];
+    if (current.contains(userId)) {
+      current.remove(userId);
+      await box.put('followed_users', current);
+    }
+  }
+
+  static List<String> getFollowedUsers() {
+    if (!Hive.isBoxOpen(_feedBoxName)) return [];
+    final box = Hive.box(_feedBoxName);
+    return (box.get('followed_users') as List?)?.cast<String>() ?? [];
+  }
 }
