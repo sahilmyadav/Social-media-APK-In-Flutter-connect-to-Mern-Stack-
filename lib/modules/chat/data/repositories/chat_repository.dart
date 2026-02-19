@@ -1,19 +1,24 @@
 import 'dart:async';
 import 'dart:io';
+
 import 'package:dio/dio.dart';
-import 'package:socket_io_client/socket_io_client.dart' as IO;
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter/foundation.dart'; // For debugPrint
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http_parser/http_parser.dart'; // For MediaType
-import '../../../../core/network/api_client.dart';
-import '../../domain/entities/chat_entity.dart';
-import '../../../call/domain/entities/call_entity.dart';
+import 'package:socket_io_client/socket_io_client.dart' as IO;
+
 import '../../../../core/local_storage/hive_helper.dart';
+import '../../../../core/network/api_client.dart';
+import '../../../call/domain/entities/call_entity.dart';
+import '../../domain/entities/chat_entity.dart';
 
 class ChatRepository {
   final ApiClient _apiClient;
   final FlutterSecureStorage _storage = const FlutterSecureStorage();
   late IO.Socket _socket;
+
+  // Cached current user info for outgoing calls
+  Map<String, dynamic>? _cachedCurrentUser;
 
   // Streams
   final _messageController = StreamController<MessageEntity>.broadcast();
@@ -81,21 +86,17 @@ class ChatRepository {
     });
 
     _socket.on('call_incoming', (data) {
-      print("Incoming Call: $data");
+      print("Incoming Call Raw Data: $data");
       try {
-        final call = CallEntity(
-          callId: data['callId'],
-          callerId: data['caller']['_id'],
-          callerName: data['caller']['username'],
-          callerPic: data['caller']['profilePicture'],
-          receiverId: '',
-          type: data['callType'],
-          status: 'ringing',
-          channelId: data['callId'],
-        );
+        final json = Map<String, dynamic>.from(data as Map);
+        // Use the null-safe fromJson factory that handles both flat and nested formats
+        final call = CallEntity.fromJson(json);
+        print(
+            "Parsed Incoming Call: callerId=${call.callerId}, callerName=${call.callerName}, callerPic=${call.callerPic}");
         _callController.add(call);
-      } catch (e) {
+      } catch (e, stackTrace) {
         print("Call Parse Error: $e");
+        print("Call Parse StackTrace: $stackTrace");
       }
     });
 
@@ -318,8 +319,29 @@ class ChatRepository {
 
   /// POST /chat/call/request/:receiverId
   Future<CallEntity> requestCall(String receiverId, String type) async {
-    final response = await _apiClient.dio
-        .post('/chat/call/request/$receiverId', data: {"callType": type});
+    // Fetch current user info to send caller details with the call request
+    // so the receiver (website) can display the caller's name and picture.
+    if (_cachedCurrentUser == null) {
+      try {
+        final userResp = await _apiClient.dio.get('/users/current-user');
+        _cachedCurrentUser = Map<String, dynamic>.from(userResp.data['data']);
+      } catch (e) {
+        debugPrint('Failed to fetch current user for call: $e');
+      }
+    }
+
+    final callerName =
+        '${_cachedCurrentUser?['firstName'] ?? ''} ${_cachedCurrentUser?['lastName'] ?? ''}'
+            .trim();
+
+    final response =
+        await _apiClient.dio.post('/chat/call/request/$receiverId', data: {
+      "callType": type,
+      "callerName": callerName.isNotEmpty ? callerName : 'Unknown',
+      "callerPic": _cachedCurrentUser?['profilePicture'] ?? '',
+      "callerId": _cachedCurrentUser?['_id'] ?? '',
+      "callerUsername": _cachedCurrentUser?['username'] ?? '',
+    });
     return CallEntity.fromJson(response.data['data']);
   }
 
